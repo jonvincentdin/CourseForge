@@ -7,16 +7,18 @@ import {
   integer,
   pgEnum,
   boolean,
+  jsonb,
 } from "drizzle-orm/pg-core";
 import type { AdapterAccountType } from "@auth/core/adapters";
 
 /**
  * Milestone 1 scope: authentication + user foundation.
- * Milestone 2 scope: syllabus + subject storage (added below).
- * Course, Module, Quiz, Progress, and Sharing tables are introduced in
- * their respective milestones (see .context/DATABASE.md and
- * .context/MILESTONES.md) — they are intentionally NOT stubbed here
- * so the schema never implies functionality that doesn't exist yet.
+ * Milestone 2 scope: syllabus + subject storage.
+ * Milestone 4 scope: course/module/quiz storage (added below).
+ * Progress and Sharing tables are introduced in their respective
+ * milestones (see .context/DATABASE.md and .context/MILESTONES.md) —
+ * they are intentionally NOT stubbed here so the schema never implies
+ * functionality that doesn't exist yet.
  */
 
 export const users = pgTable("user", {
@@ -145,3 +147,107 @@ export type Syllabus = typeof syllabi.$inferSelect;
 export type NewSyllabus = typeof syllabi.$inferInsert;
 export type Subject = typeof subjects.$inferSelect;
 export type NewSubject = typeof subjects.$inferInsert;
+
+// ---------------------------------------------------------------------------
+// Milestone 4 — Course Data Model
+// ---------------------------------------------------------------------------
+
+export const courseSourceEnum = pgEnum("course_source", [
+  "imported",
+  "generated",
+  "shared_copy",
+]);
+
+export const quizQuestionType = pgEnum("quiz_question_type", [
+  "multiple_choice",
+  "multiple_select",
+  "true_false",
+  "identification",
+]);
+
+/**
+ * A course is a self-contained snapshot once created — its Markdown
+ * content does not live-update if the source subject/syllabus later
+ * changes. subjectId/syllabusId are kept for provenance/display only
+ * and are nullable with onDelete "set null": deleting the syllabus a
+ * course was generated from must never delete or orphan the course
+ * itself (see .context/DECISIONS.md).
+ */
+export const courses = pgTable("course", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  ownerId: uuid("owner_id")
+    .notNull()
+    .references(() => users.id, { onDelete: "cascade" }),
+  subjectId: uuid("subject_id").references(() => subjects.id, {
+    onDelete: "set null",
+  }),
+  syllabusId: uuid("syllabus_id").references(() => syllabi.id, {
+    onDelete: "set null",
+  }),
+  title: text("title").notNull(),
+  subjectCode: text("subject_code"),
+  academicYear: integer("academic_year"),
+  semester: semesterEnum("semester"),
+  description: text("description"),
+  learningObjectives: jsonb("learning_objectives").$type<string[]>().notNull().default([]),
+  schemaVersion: text("schema_version").notNull().default("1.0"),
+  source: courseSourceEnum("source").notNull().default("imported"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const courseModules = pgTable("course_module", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  courseId: uuid("course_id")
+    .notNull()
+    .references(() => courses.id, { onDelete: "cascade" }),
+  title: text("title").notNull(),
+  description: text("description"),
+  learningObjectives: jsonb("learning_objectives").$type<string[]>().notNull().default([]),
+  contentMarkdown: text("content_markdown").notNull(),
+  sortOrder: integer("sort_order").notNull().default(0),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+/** Every module has exactly one quiz — enforced by the unique constraint on module_id. */
+export const quizzes = pgTable("quiz", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  moduleId: uuid("module_id")
+    .notNull()
+    .unique()
+    .references(() => courseModules.id, { onDelete: "cascade" }),
+  title: text("title").notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+/**
+ * `options` is null for identification questions. For multiple_choice /
+ * multiple_select it's an array of {id, text}. `correctAnswer` shape
+ * depends on `type`:
+ *   multiple_choice  -> string (the correct option id)
+ *   multiple_select  -> string[] (the correct option ids)
+ *   true_false       -> boolean
+ *   identification   -> string[] (any accepted answer, matched case-insensitively)
+ * Enforced by src/lib/course-schema.ts at write time, not by the DB.
+ */
+export const quizQuestions = pgTable("quiz_question", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  quizId: uuid("quiz_id")
+    .notNull()
+    .references(() => quizzes.id, { onDelete: "cascade" }),
+  type: quizQuestionType("type").notNull(),
+  prompt: text("prompt").notNull(),
+  options: jsonb("options").$type<{ id: string; text: string }[] | null>(),
+  correctAnswer: jsonb("correct_answer").$type<string | string[] | boolean>().notNull(),
+  explanation: text("explanation"),
+  sortOrder: integer("sort_order").notNull().default(0),
+});
+
+export type Course = typeof courses.$inferSelect;
+export type NewCourse = typeof courses.$inferInsert;
+export type CourseModule = typeof courseModules.$inferSelect;
+export type NewCourseModule = typeof courseModules.$inferInsert;
+export type Quiz = typeof quizzes.$inferSelect;
+export type QuizQuestion = typeof quizQuestions.$inferSelect;
+export type NewQuizQuestion = typeof quizQuestions.$inferInsert;

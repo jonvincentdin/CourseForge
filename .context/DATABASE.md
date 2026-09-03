@@ -68,31 +68,77 @@ this satisfies the brief without a more complex version-graph model.
 | auto_detected | boolean, default true | flips to `false` the moment a human edits or manually adds a row — lets the UI distinguish "CourseForge guessed this" from "a person confirmed/wrote this" |
 | created_at / updated_at | timestamp | |
 
+### `course` (Milestone 4)
+| Column | Type | Notes |
+|---|---|---|
+| id | uuid, PK | |
+| owner_id | uuid, FK → `user.id`, cascade delete | |
+| subject_id | uuid, FK → `subject.id`, **`set null`** on delete, nullable | provenance only — see Known Decisions below |
+| syllabus_id | uuid, FK → `syllabus.id`, **`set null`** on delete, nullable | provenance only |
+| title, subject_code, academic_year, semester, description | | denormalized copies at creation time, not live references |
+| learning_objectives | jsonb (`string[]`) | |
+| schema_version | text, default `"1.0"` | matches `src/lib/course-schema.ts`'s `CURRENT_SCHEMA_VERSION` at import time |
+| source | enum: `imported` / `generated` / `shared_copy` | only `imported` is reachable today — `generated` is for Milestone 6, `shared_copy` for Milestone 9 |
+| created_at / updated_at | timestamp | |
+
+### `course_module` (Milestone 4)
+| Column | Type | Notes |
+|---|---|---|
+| id | uuid, PK | |
+| course_id | uuid, FK → `course.id`, cascade delete | |
+| title, description | | |
+| learning_objectives | jsonb (`string[]`) | |
+| content_markdown | text | plain Markdown, not structured — see `COURSE_SCHEMA.md` for the sanitization approach |
+| sort_order | integer, default 0 | |
+
+### `quiz` (Milestone 4)
+| Column | Type | Notes |
+|---|---|---|
+| id | uuid, PK | |
+| module_id | uuid, FK → `course_module.id`, cascade delete, **unique** | one quiz per module, enforced at the DB level |
+| title | text | |
+
+### `quiz_question` (Milestone 4)
+| Column | Type | Notes |
+|---|---|---|
+| id | uuid, PK | |
+| quiz_id | uuid, FK → `quiz.id`, cascade delete | |
+| type | enum: `multiple_choice` / `multiple_select` / `true_false` / `identification` | |
+| prompt | text | |
+| options | jsonb (`{id, text}[]` or null) | null for `identification`; required by the zod layer for the other three |
+| correct_answer | jsonb (`string \| string[] \| boolean`) | shape depends on `type` — see `COURSE_SCHEMA.md` table. Enforced by `src/lib/course-schema.ts` at write time, **not** a DB constraint |
+| explanation | text, nullable | |
+| sort_order | integer, default 0 | |
+
 ## Relationships
 
-- `account.user_id` / `session.user_id` / `syllabus.user_id` → `user.id`, cascade delete
+- `account.user_id` / `session.user_id` / `syllabus.user_id` / `course.owner_id` → `user.id`, cascade delete
 - `subject.syllabus_id` → `syllabus.id`, cascade delete (verified: deleting a syllabus removes its subjects)
+- `course.subject_id` / `course.syllabus_id` → `subject.id` / `syllabus.id`, **`set null`** on delete — a course is a snapshot, not a live reference; deleting its source syllabus must never delete or orphan the course (see `DECISIONS.md`)
+- `course_module.course_id` → `course.id`, cascade delete
+- `quiz.module_id` → `course_module.id`, cascade delete, unique (one quiz per module)
+- `quiz_question.quiz_id` → `quiz.id`, cascade delete
 
 ## Indexes
 
-`user.email` has a unique constraint (and therefore an index). No
-other indexes yet — no query pattern has needed one at this scale.
-Revisit `subject.syllabus_id` and `syllabus.user_id` if listing pages
-get slow with real data volume.
+`user.email` has a unique constraint (and therefore an index).
+`quiz.module_id` has a unique constraint. No other indexes yet — no
+query pattern has needed one at this scale. Revisit
+`subject.syllabus_id`, `syllabus.user_id`, and `course.owner_id` if
+listing pages get slow with real data volume.
 
 ## Storage
 
 Original PDFs are stored via `src/lib/storage.ts` (local filesystem
 today; see `DECISIONS.md`), keyed by `syllabus.storage_key`, not
-inside Postgres itself.
+inside Postgres itself. Course content (Markdown, quiz data) lives
+entirely in Postgres — no separate file storage needed for it.
 
 ## Not yet modeled (owned by later milestones — do not invent these tables early)
 
-- Course / CourseModule / Quiz / QuizQuestion (Milestone 4)
 - CourseProgress (Milestone 7)
 - AIProviderConfiguration (Milestone 6)
 - CourseShare / CoursePermission / CourseInvitation (Milestone 9)
-- Course-copy fields (`source_course_id`, `source_type`) on `Course` (Milestone 9)
 
 ## Known gaps
 

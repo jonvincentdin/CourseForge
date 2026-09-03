@@ -20,6 +20,22 @@
   constraint) as well as checked in the handler.
 - **Data isolation**: not yet applicable — no per-user resources exist
   besides the account itself.
+- **Markdown rendering** (Milestone 4): `react-markdown` + `remark-gfm`
+  without `rehype-raw` — embedded HTML in course content is escaped to
+  literal text, never interpreted as markup. This is the entire XSS
+  defense and was verified live with two real payloads
+  (`<script>...</script>`, `<img onerror=...>`) confirmed inert in the
+  actual rendered DOM, not just asserted in a comment. See
+  `COURSE_SCHEMA.md`.
+- **Course JSON import** (Milestone 4): all imported JSON is validated
+  against a versioned zod schema before touching the database — parse
+  errors, schema-version mismatches, and structural violations all
+  produce specific errors rather than either a generic failure or (far
+  worse) silently accepting bad data. If a `subjectId`/`syllabusId` is
+  supplied for provenance, it is independently re-verified as
+  belonging to the authenticated user — verified live that a second
+  account cannot attribute an import to another user's syllabus by
+  supplying its id.
 
 ## Required for future milestones (do not build these features without this)
 
@@ -37,8 +53,6 @@
   validate the share token, confirm the course is currently
   shareable, and confirm the requesting user is authenticated — never
   trust a client-supplied course ID, owner ID, or permission.
-- **Markdown rendering** (Milestone 7): sanitize before render; never
-  execute embedded HTML/JS from AI-generated or imported content.
 - **Syllabus/JSON import** (Milestone 2 / 5): treat all uploaded and
   AI-returned content as untrusted; validate structurally before
   storing or rendering; watch for prompt-injection payloads hidden in

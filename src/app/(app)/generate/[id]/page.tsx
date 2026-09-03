@@ -61,6 +61,7 @@ export default async function GenerateFromSyllabusPage({
 
       <div className="mt-8">
         <SubjectSelector
+          syllabusId={syllabus.id}
           subjects={rows}
           initialYear={parsedYear}
           initialSemester={parsedSemester}

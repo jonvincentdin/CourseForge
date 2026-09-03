@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 import type { Subject } from "@/db/schema";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -13,16 +14,19 @@ const SEMESTER_ORDER: Subject["semester"][] = [
 ];
 
 export function SubjectSelector({
+  syllabusId,
   subjects,
   initialYear,
   initialSemester,
   initialSubjectId,
 }: {
+  syllabusId: string;
   subjects: Subject[];
   initialYear?: number;
   initialSemester?: Subject["semester"];
   initialSubjectId?: string;
 }) {
+  const router = useRouter();
   const availableYears = useMemo(
     () => [...new Set(subjects.map((s) => s.academicYear))].sort((a, b) => a - b),
     [subjects]
@@ -228,12 +232,19 @@ export function SubjectSelector({
       </div>
 
       <div className="mt-6 flex items-center gap-3">
-        <span title="Course generation isn't built yet — see Milestone 5/6">
-          <Button disabled={selectedSubjects.length === 0}>Continue</Button>
-        </span>
+        <Button
+          disabled={selectedSubjects.length === 0}
+          onClick={() => {
+            const ids = selectedSubjects.map((s) => s.id).join(",");
+            router.push(`/generate/${syllabusId}/import?subjects=${ids}`);
+          }}
+        >
+          Continue
+        </Button>
         <p className="text-sm text-steel-soft">
-          Course generation isn&apos;t built yet. Your selection is ready for
-          when it is.
+          {selectedSubjects.length === 0
+            ? "Select at least one subject to continue."
+            : "AI generation isn't built yet — you'll paste in ready-made course JSON next."}
         </p>
       </div>
     </div>

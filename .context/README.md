@@ -57,14 +57,17 @@ silently re-litigated.
 
 ## Current project status
 
-**Milestones 1 through 4 are complete and verified live** — not just
+**Milestones 1 through 5 are complete and verified live** — not just
 build-clean, but exercised against a real running Postgres database
 and a real dev server with actual HTTP requests, including cross-user
 data isolation on every ownership-checked route and a genuine
-import → database → export round-trip for course data.
-See `MILESTONES.md` for the precise completion checklist and what's
-explicitly out of scope so far.
+import → database → export round-trip for course data. CourseForge is
+now fully usable end-to-end without any AI API key: upload a syllabus,
+select subjects, copy a grounded prompt into any AI, paste the JSON
+back. See `MILESTONES.md` for the precise completion checklist and
+what's explicitly out of scope so far.
 
-No AI-assisted generation, interactive quiz-taking, progress tracking,
-or sharing exists yet. `/courses/[id]` is a deliberately read-only
-structural preview — that's Milestones 5 through 9.
+No direct (API-key-based) AI generation, interactive quiz-taking,
+progress tracking, or sharing exists yet. `/courses/[id]` is a
+deliberately read-only structural preview — that's Milestones 6
+through 9.

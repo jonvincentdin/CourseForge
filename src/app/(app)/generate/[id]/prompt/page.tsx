@@ -6,14 +6,13 @@ import { auth } from "@/lib/auth";
 import { db } from "@/db";
 import { subjects } from "@/db/schema";
 import { getOwnedSyllabus } from "@/lib/syllabus-service";
-import { ImportCourseForm } from "@/components/generate/import-course-form";
-import { EXAMPLE_COURSE_IMPORT } from "@/lib/course-schema";
+import { CoursePromptGenerator } from "@/components/generate/course-prompt-generator";
 
 export const metadata: Metadata = {
-  title: "Import Course JSON — CourseForge",
+  title: "Generate a Course — CourseForge",
 };
 
-export default async function ImportCoursesPage({
+export default async function GeneratePromptPage({
   params,
   searchParams,
 }: {
@@ -41,8 +40,6 @@ export default async function ImportCoursesPage({
   const validSubjects = rows.filter((s) => s.syllabusId === id);
   if (validSubjects.length === 0) notFound();
 
-  const exampleJson = JSON.stringify(EXAMPLE_COURSE_IMPORT, null, 2);
-
   return (
     <div className="mx-auto max-w-3xl">
       <Link
@@ -52,28 +49,20 @@ export default async function ImportCoursesPage({
         ← Back to subject selection
       </Link>
       <h1 className="mt-3 font-display text-2xl font-medium text-ink">
-        Import course JSON
+        Generate a course
       </h1>
       <p className="mt-1 text-sm text-ink-soft">
         {validSubjects.length === 1
-          ? "Paste ready-made course JSON for this subject."
-          : `Each of your ${validSubjects.length} selected subjects becomes its own independent course — paste JSON for each below.`}
-      </p>
-      <p className="mt-1 text-xs text-steel-soft">
-        No AI provider connected yet — generate JSON with any AI using
-        CourseForge&apos;s schema, or use the example to try the flow.
+          ? "Copy the prompt into any AI, then paste back what it gives you."
+          : `Each of your ${validSubjects.length} selected subjects becomes its own independent course, with its own prompt below.`}
       </p>
 
-      <div className="mt-8 space-y-6">
-        {validSubjects.map((subject) => (
-          <ImportCourseForm
-            key={subject.id}
-            subjectId={subject.id}
-            syllabusId={id}
-            subjectLabel={subject.code ? `${subject.code} — ${subject.name}` : subject.name}
-            exampleJson={exampleJson}
-          />
-        ))}
+      <div className="mt-8">
+        <CoursePromptGenerator
+          syllabusId={id}
+          syllabus={{ title: syllabus.title, extractedText: syllabus.extractedText }}
+          subjects={validSubjects}
+        />
       </div>
     </div>
   );

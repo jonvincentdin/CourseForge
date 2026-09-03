@@ -38,11 +38,14 @@ assumption of a specific institution's syllabus format.
 
 ## Current implementation
 
-Milestones 1–4: accounts, sign in/out, protected dashboard shell,
+Milestones 1–5: accounts, sign in/out, protected dashboard shell,
 design system, syllabus upload/extraction/review/management, the
-year/semester/subject selection flow, and the course data model
-(schema, Markdown rendering, JSON import/export). Everything else in
-the feature list above is not yet built. See `MILESTONES.md`.
+year/semester/subject selection flow, the course data model (schema,
+Markdown rendering, JSON import/export), and the external AI workflow
+(syllabus-grounded prompt generation, JSON Schema download, prompt
+copying). Direct AI generation (Milestone 6) is the only generation
+method still missing — CourseForge is already fully usable without an
+AI API key. See `MILESTONES.md`.
 
 ## Important constraints
 

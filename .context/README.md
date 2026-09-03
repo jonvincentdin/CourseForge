@@ -57,13 +57,14 @@ silently re-litigated.
 
 ## Current project status
 
-**Milestones 1 through 3 are complete and verified live** — not just
+**Milestones 1 through 4 are complete and verified live** — not just
 build-clean, but exercised against a real running Postgres database
 and a real dev server with actual HTTP requests, including cross-user
-data isolation on every ownership-checked route. See `MILESTONES.md`
-for the precise completion checklist and what's explicitly out of
-scope so far.
+data isolation on every ownership-checked route and a genuine
+import → database → export round-trip for course data.
+See `MILESTONES.md` for the precise completion checklist and what's
+explicitly out of scope so far.
 
-No course, quiz, sharing, or AI-generation functionality exists yet.
-The subject selector's "Continue" button is a visible, deliberately
-disabled stub — that's Milestones 4 through 9.
+No AI-assisted generation, interactive quiz-taking, progress tracking,
+or sharing exists yet. `/courses/[id]` is a deliberately read-only
+structural preview — that's Milestones 5 through 9.

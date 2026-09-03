@@ -128,25 +128,84 @@ new setup):
 - Dashboard's "Generate a course" CTA is a real `href="/generate"`
 
 **Explicitly out of scope / known limitations** (do not treat as
-bugs): the "Continue" button at the bottom of the selector is
-deliberately disabled with an explanatory note — there's no Course
-model yet (Milestone 4) and no generation method to continue *to*
-(Milestone 5/6), so a working button here would be misleading. The
-selection itself is not persisted anywhere (pure client state) since
-there's nothing yet for it to be persisted *as* — this is worth
-revisiting once Milestone 4's schema exists, so a user's in-progress
-selection can survive a page refresh. Selection is scoped to a single
-year+semester at a time and resets when you change either — cross-
-year/semester bundled selection was considered and deliberately not
-built, since the brief's own flow (§16) lists year → semester →
-subjects as sequential steps, not a cross-cutting picker.
+bugs): Selection is scoped to a single year+semester at a time and
+resets when you change either — cross-year/semester bundled selection
+was considered and deliberately not built, since the brief's own flow
+(§16) lists year → semester → subjects as sequential steps, not a
+cross-cutting picker. *(Update from Milestone 4: "Continue" now
+navigates into the real import flow — see below. It's no longer a
+disabled stub.)*
 
 ---
 
-## Milestone 4 — Course Data Model — `[ ]` Not started
+## Milestone 4 — Course Data Model — `[✓]` Complete
 
-Course/module/quiz schema, Markdown support, JSON validation,
-import/export. See `COURSE_SCHEMA.md`.
+- [x] Course schema — `course` table: owner, provenance (nullable
+      `subjectId`/`syllabusId`, `set null` on delete so a course
+      survives its source syllabus being deleted), title, metadata,
+      `learning_objectives` (jsonb), `schema_version`, `source`
+- [x] Module schema — `course_module`: title, description, learning
+      objectives, `content_markdown` (plain text, not structured)
+- [x] Quiz schema — `quiz` (one per module, enforced by a unique
+      constraint on `module_id`) + `quiz_question` (4 types: multiple
+      choice, multiple select, true/false, identification — each with
+      its own `correctAnswer` shape and validation)
+- [x] Markdown support — `react-markdown` + `remark-gfm`, rendered
+      without `rehype-raw` as the entire XSS defense (see
+      `COURSE_SCHEMA.md` and `SECURITY.md`)
+- [x] JSON validation — `src/lib/course-schema.ts`, versioned
+      (`schema_version: "1.0"`), specific field-path error messages
+- [x] Import/export — `POST /api/courses/import` (bare paste-JSON UI;
+      the polished prompt-generator UI is Milestone 5's job, not this
+      one's), `GET /api/courses/[id]/export` (downloadable, round-trips
+      through the app's own validator)
+
+**Verified live**, not just build-clean — run against a real Postgres
+instance, a real dev server, and (this time) migrations generated
+*and* applied fresh to a brand-new database in the same session:
+
+- Imported a real course via the actual API; confirmed every row
+  (course, module, quiz, question) persisted correctly in Postgres,
+  not just that the API returned `201`
+- Exported that same course and re-validated the exported JSON against
+  the app's own schema validator — passed with zero errors, proving
+  import and export genuinely agree on the shape rather than just
+  hoping they do
+- Fed the validator five different malformed/invalid inputs (non-JSON,
+  unsupported `schema_version`, empty Markdown, zero-question quiz, a
+  `multiple_choice` `correctAnswer` that doesn't match any option) —
+  every one produced the correct, specific error message
+- Imported two real XSS payloads (`<script>alert(1)</script>` and
+  `<img src=x onerror=alert(2)>`) and inspected the actual rendered
+  HTML: both came through as inert escaped text, never as live markup
+  or an executable attribute
+- Cross-user isolation, extended to courses: a second real account
+  gets `404` on both viewing and exporting the first account's course;
+  separately, that same second account's attempt to import while
+  claiming the *first* account's real syllabus id as provenance was
+  correctly rejected server-side ("That syllabus doesn't belong to
+  you.") — the ownership check is real, not just present in the code
+- Multi-subject independence: uploaded a two-subject syllabus, and the
+  `/generate/[id]/import` page rendered two separate paste-JSON forms,
+  one per subject — confirming the "independent courses, never
+  merged" requirement holds at the UI level, not only the DB level
+
+**Explicitly out of scope / known limitations** (do not treat as
+bugs): the import UI is a bare textarea, not the polished "copy this
+prompt into ChatGPT" experience — that's Milestone 5. `/courses/[id]`
+is a read-only structural preview (collapsible modules, rendered
+Markdown, a quiz question-count badge) — there's no actual
+quiz-taking, scoring, or progress tracking yet, that's Milestone 7.
+`/courses` (the list) has no delete/search/regenerate — that's
+Milestone 8, matching the same staged pattern Milestone 2 used for
+`/syllabi` before Milestone 8 existed. A course's Markdown/quiz
+content does not currently escape `<` and `>` characters typed
+*literally as prose* (e.g. "x < y") any differently from a real tag —
+that's expected Markdown behavior, not a bug, but worth knowing if a
+course author writes math-like comparisons in prose without code
+formatting.
+
+---
 
 ## Milestone 5 — External AI Workflow — `[ ]` Not started
 
@@ -192,9 +251,12 @@ database audit, edge cases, real test coverage, deployment prep.
 
 ## Recommended immediate next step
 
-Milestone 4 (Course Data Model) is the natural next step — the
-selector built in Milestone 3 has nothing to hand its selection off to
-yet. Design the `course`/`course_module`/`quiz`/`quiz_question` schema
-and the versioned JSON shape before writing any generation code
-(Milestone 5/6 depend on that schema existing first, not the other way
-around).
+Milestone 5 (External AI Workflow) builds directly on Milestone 4's
+schema and import capability: a prompt generator that produces a
+syllabus-grounded prompt (subject, code, year, semester, syllabus
+context, the JSON schema, validation requirements) for the user to
+paste into any external AI, a "download the JSON schema" button
+(reuse `EXAMPLE_COURSE_IMPORT`/the zod schema from
+`course-schema.ts`), and wiring the existing bare-textarea import UI
+into that flow instead of standing alone. No new DB schema should be
+needed — this is almost entirely a UI/prompt-construction milestone.

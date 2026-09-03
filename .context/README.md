@@ -57,13 +57,13 @@ silently re-litigated.
 
 ## Current project status
 
-**Milestone 1 (Foundation) is functionally complete.** Next.js 15 +
-TypeScript + Tailwind 4 project, the "steel & ember" design system and
-base UI primitives, Postgres via Drizzle ORM, and Auth.js v5
-credentials authentication (signup, login, session, route protection)
-all exist and build cleanly. See `MILESTONES.md` for the precise
-completion checklist and what's explicitly out of scope so far.
+**Milestones 1 through 3 are complete and verified live** — not just
+build-clean, but exercised against a real running Postgres database
+and a real dev server with actual HTTP requests, including cross-user
+data isolation on every ownership-checked route. See `MILESTONES.md`
+for the precise completion checklist and what's explicitly out of
+scope so far.
 
-No syllabus, course, quiz, sharing, or AI-generation functionality
-exists yet — the dashboard intentionally shows empty states rather
-than placeholder/fake data. That is Milestones 2 through 9.
+No course, quiz, sharing, or AI-generation functionality exists yet.
+The subject selector's "Continue" button is a visible, deliberately
+disabled stub — that's Milestones 4 through 9.

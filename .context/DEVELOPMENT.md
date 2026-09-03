@@ -77,3 +77,12 @@ resistance for Next.js + this stack, but nothing here assumes it).
   Neither is a code problem — both are just unreachable in that
   specific environment. A normal environment with internet access
   will resolve fonts at build time without any changes.
+- Both Milestone 1 and 2 were, in a later session, verified live
+  against a real local Postgres 16 instance and a real running dev
+  server (not just `tsc`/`eslint`/`next build`) — signup, login,
+  session, route protection, full syllabus upload/extract/review/
+  finalize/reprocess/delete, and cross-user data isolation were all
+  exercised with real HTTP requests. If you're picking this project up
+  fresh, `apt-get install postgresql`, `service postgresql start`,
+  `createdb courseforge`, `npm run db:push` gets you a working local
+  database fast for the same kind of verification.

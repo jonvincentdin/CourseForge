@@ -10,10 +10,12 @@ grounded prompt you run in any external AI and import back as JSON.
 
 ## Status
 
-**Milestone 1 (Foundation) is complete.** Accounts, sign in/out, a
-protected dashboard shell, and the design system are built and
-verified. Syllabus upload, course generation, the learning experience,
-and sharing are not built yet.
+**Milestones 1–3 are complete and verified end-to-end** against a real
+Postgres database and real HTTP requests: accounts, sign in/out,
+syllabus PDF upload/extraction/review/finalize/reprocess/delete, the
+year/semester/subject selection flow, and cross-user data isolation
+throughout. Course generation, the learning experience, and sharing
+are not built yet.
 
 See [`.context/MILESTONES.md`](.context/MILESTONES.md) for the full
 status, and [`.context/README.md`](.context/README.md) for how this

@@ -70,15 +70,71 @@ expose a page.
 
 ---
 
+**Decision:** Syllabus versioning is "each upload is an independent
+record," not a parent/lineage model with explicit version numbers.
+
+**Reason:** The brief explicitly allows either "versions or separate
+syllabus records" (§24). A lineage model (linking re-uploads to a
+common curriculum, tracking which is "current") adds real complexity
+— what counts as a new version vs. an unrelated syllabus? does
+re-uploading auto-supersede the old one or coexist? — for a
+requirement the brief itself says a simpler model satisfies. If a real
+need for lineage emerges (e.g. "regenerate this course from the latest
+version of the same curriculum"), revisit then with a concrete use
+case driving the design, rather than speculatively now.
+
+**Date:** 2026-09-03
+
+---
+
+**Decision:** Syllabus subject/year/semester detection is a
+regex-based heuristic (`src/lib/syllabus-extraction.ts`), not an AI
+call.
+
+**Reason:** The brief's milestone breakdown puts AI capability
+entirely in Milestones 5–6, scoped to *course generation*, not
+syllabus extraction. Building an AI-dependent extraction step into
+Milestone 2 would mean syllabus upload doesn't work at all until AI
+configuration exists three-to-four milestones later — a real
+regression for a feature the brief describes as usable standalone.
+The heuristic parser is honest about its limits (see
+`SYLLABUS_PROCESSING.md`): it's why every extraction lands in
+`needs_review`, never auto-`ready`, and why the review UI exists as a
+first-class step rather than an edge case. Revisit if/when Milestone
+5/6's AI infrastructure exists and there's appetite to offer
+AI-assisted extraction as an *upgrade* to this, not a replacement
+requirement for basic upload to work.
+
+**Date:** 2026-09-03
+
+---
+
 ## Open questions (not yet decided — flag before Milestone 2 starts)
 
-- **Syllabus PDF storage:** local disk vs. object storage (S3-
-  compatible). Local disk is simpler for early development but won't
-  survive most deployment targets' ephemeral filesystems. Needs a
-  decision before Milestone 2's persistent-storage requirement can be
-  implemented for real.
 - **AI provider abstraction shape** (Milestone 6): what the common
   interface looks like across providers (OpenAI-compatible vs.
   Anthropic-style tool use vs. something else) isn't decided yet.
-- **Deployment target:** nothing has been chosen. Affects the file-
-  storage decision above and how `DATABASE_URL` gets provisioned.
+- **Deployment target:** nothing has been chosen. Affects the
+  syllabus-file-storage decision below and how `DATABASE_URL` gets
+  provisioned.
+
+## Resolved
+
+**Decision:** Syllabus PDFs are stored on local disk
+(`src/lib/storage.ts`, `STORAGE_DIR` env var, default `./storage`) for
+now, behind a small abstraction (`saveFile`/`readStoredFile`/
+`deleteStoredFile`) so the implementation can be swapped later without
+touching any calling code.
+
+**Reason:** No deployment target has been chosen yet (see the open
+question above), so there's no concrete requirement to build against
+an S3-compatible API today. Local disk is simplest for development and
+was fully verified end-to-end in this session (file written on
+upload, read back on reprocess, deleted on syllabus delete — all
+confirmed against the real filesystem). **This will not survive most
+deployment targets' ephemeral filesystems** — swap `storage.ts`'s
+implementation for an object-storage backend before deploying
+anywhere except a single long-lived server with a persistent disk.
+Revisit once a deployment target is actually chosen, not before.
+
+**Date:** 2026-09-03

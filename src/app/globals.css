@@ -1,0 +1,89 @@
+@import "tailwindcss";
+
+/*
+  CourseForge design tokens.
+  Palette concept: "steel & ember" — a forge working in cool structural
+  tones (steel, ink, paper) with a single warm ember accent for the
+  moments where the syllabus becomes a course. Academic, technical,
+  unmistakably not a generic SaaS gradient kit.
+*/
+:root {
+  --paper: #f5f6f8;
+  --paper-raised: #ffffff;
+  --ink: #14171c;
+  --ink-soft: #4b525e;
+  --steel: #48566b;
+  --steel-soft: #6b7688;
+  --line: #dde1e7;
+  --line-strong: #c3c9d3;
+  --ember: #d1490f;
+  --ember-soft: #f1d9ce;
+  --forge-green: #2f6b4f;
+  --forge-green-soft: #d9ebe1;
+  --danger: #b3311c;
+  --danger-soft: #f3d9d3;
+
+  --radius-sm: 0.25rem;
+  --radius-md: 0.5rem;
+  --radius-lg: 0.875rem;
+}
+
+@theme inline {
+  --color-paper: var(--paper);
+  --color-paper-raised: var(--paper-raised);
+  --color-ink: var(--ink);
+  --color-ink-soft: var(--ink-soft);
+  --color-steel: var(--steel);
+  --color-steel-soft: var(--steel-soft);
+  --color-line: var(--line);
+  --color-line-strong: var(--line-strong);
+  --color-ember: var(--ember);
+  --color-ember-soft: var(--ember-soft);
+  --color-forge-green: var(--forge-green);
+  --color-forge-green-soft: var(--forge-green-soft);
+  --color-danger: var(--danger);
+  --color-danger-soft: var(--danger-soft);
+
+  --font-display: var(--font-fraunces);
+  --font-sans: var(--font-plex-sans);
+  --font-mono: var(--font-plex-mono);
+
+  --radius-sm: var(--radius-sm);
+  --radius-md: var(--radius-md);
+  --radius-lg: var(--radius-lg);
+}
+
+* {
+  border-color: var(--line);
+}
+
+html {
+  color-scheme: light;
+}
+
+body {
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--font-sans);
+}
+
+::selection {
+  background: var(--ember-soft);
+  color: var(--ink);
+}
+
+:focus-visible {
+  outline: 2px solid var(--ember);
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
+}

@@ -52,11 +52,14 @@ see `DECISIONS.md`.
 | `/syllabi/[id]/review` | Authenticated, ownership-checked | Built |
 | `/generate` | Authenticated | Built — chooser/redirect across ready syllabi |
 | `/generate/[id]` | Authenticated, ownership-checked, `ready`-only | Built — year/semester/subject selection |
-| `/generate/[id]/import` | Authenticated, ownership-checked | Built — paste-JSON import, one form per selected subject |
+| `/generate/[id]/prompt` | Authenticated, ownership-checked | Built — generation settings, per-subject AI prompt + copy + JSON import |
 | `/courses` | Authenticated | Built — minimal list (full management is Milestone 8) |
 | `/courses/[id]` | Authenticated, ownership-checked | Built — read-only structural preview (interactive learning is Milestone 7) |
 | `/settings` | Authenticated | Not built (Milestone 6) |
 | `/share/[token]` | Public, server-authorized | Not built (Milestone 9) |
+
+`GET /api/courses/schema` is deliberately **public/unauthenticated** —
+static format documentation, not user data.
 
 The authenticated nav (`AppNav`) still links to `/settings` as a
 forward reference — it will 404 until Milestone 6 lands.
@@ -94,17 +97,21 @@ middleware.
 
 Not built. See `AI_GENERATION.md`.
 
-## Course architecture (Milestone 4)
+## Course architecture (Milestone 4, extended in Milestone 5)
 
 `src/lib/course-schema.ts` defines the versioned JSON schema (zod) and
-is the single source of truth both the import path (built now) and
-Milestone 5/6's generation paths (built later) must satisfy — none of
-those milestones should define their own parallel validation.
-`src/lib/course-service.ts` orchestrates: parse → validate → (if
-provenance supplied) re-verify ownership → persist inside one
-`db.transaction`. `courseToExportJson` is the exact inverse, used by
-the export route — verified live to round-trip cleanly through the
-same validator.
+is the single source of truth both the import path (built in
+Milestone 4) and Milestone 5's prompt-generation path (built now) must
+satisfy — Milestone 5 adds no new validation logic, only a better
+front-end (`buildCoursePrompt` in `src/lib/prompt-generator.ts`) that
+tells an external AI how to produce JSON that already satisfies the
+Milestone 4 rules, plus `getCourseJsonSchema()` which derives a real
+JSON Schema from the same zod schema via `z.toJSONSchema()` — nothing
+that could drift out of sync. `src/lib/course-service.ts` orchestrates:
+parse → validate → (if provenance supplied) re-verify ownership →
+persist inside one `db.transaction`. `courseToExportJson` is the exact
+inverse, used by the export route — verified live to round-trip
+cleanly through the same validator.
 
 ## Sharing architecture
 
@@ -146,7 +153,8 @@ src/
       generate/
         page.tsx                  syllabus chooser / auto-redirect
         [id]/page.tsx             year/semester/subject selector
-        [id]/import/page.tsx      paste-JSON import, one form per subject
+        [id]/prompt/page.tsx      generation settings, per-subject
+                                   prompt + copy + JSON import
       courses/
         page.tsx                  minimal list
         [id]/page.tsx             read-only structural preview
@@ -161,6 +169,7 @@ src/
       syllabi/[id]/subjects/[subjectId]/route.ts         PATCH, DELETE
       courses/import/route.ts                            POST
       courses/[id]/export/route.ts                       GET
+      courses/schema/route.ts                            GET (public)
   components/
     ui/                           button, input, label, card, badge
     marketing/                    navbar, hero-visual
@@ -169,8 +178,8 @@ src/
     syllabi/                      upload-form, review-form, subject-row,
                                    add-subject-form, status badge,
                                    delete/reprocess buttons
-    generate/                     subject-selector (year/semester tabs,
-                                   search, multi-select, count),
+    generate/                     subject-selector, course-prompt-generator
+                                   (settings), subject-prompt-panel,
                                    import-course-form
     courses/                      markdown-content (sanitized renderer)
   db/
@@ -189,7 +198,9 @@ src/
     syllabus-extraction.ts        heuristic structure detection
     syllabus-service.ts           upload/reprocess/delete orchestration
     course-schema.ts              versioned JSON schema (zod) + validator
+                                   + real JSON Schema export
     course-service.ts             import/export orchestration
+    prompt-generator.ts           syllabus-grounded AI prompt builder
   types/
     next-auth.d.ts                session.user.id augmentation
 drizzle.config.ts

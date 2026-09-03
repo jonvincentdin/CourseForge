@@ -236,7 +236,7 @@ export function SubjectSelector({
           disabled={selectedSubjects.length === 0}
           onClick={() => {
             const ids = selectedSubjects.map((s) => s.id).join(",");
-            router.push(`/generate/${syllabusId}/import?subjects=${ids}`);
+            router.push(`/generate/${syllabusId}/prompt?subjects=${ids}`);
           }}
         >
           Continue
@@ -244,7 +244,7 @@ export function SubjectSelector({
         <p className="text-sm text-steel-soft">
           {selectedSubjects.length === 0
             ? "Select at least one subject to continue."
-            : "AI generation isn't built yet — you'll paste in ready-made course JSON next."}
+            : "Next, you'll get a ready-made AI prompt for each subject."}
         </p>
       </div>
     </div>

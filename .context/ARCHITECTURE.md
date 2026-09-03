@@ -50,14 +50,15 @@ see `DECISIONS.md`.
 | `/syllabi/upload` | Authenticated | Built |
 | `/syllabi/[id]` | Authenticated, ownership-checked | Built |
 | `/syllabi/[id]/review` | Authenticated, ownership-checked | Built |
+| `/generate` | Authenticated | Built — chooser/redirect across ready syllabi |
+| `/generate/[id]` | Authenticated, ownership-checked, `ready`-only | Built — year/semester/subject selection; "Continue" is a disabled stub (no Course model yet) |
 | `/courses` | Authenticated | Not built (Milestone 8) |
-| `/generate` | Authenticated | Not built (Milestone 5/6) |
 | `/settings` | Authenticated | Not built (Milestone 6) |
 | `/share/[token]` | Public, server-authorized | Not built (Milestone 9) |
 
-The authenticated nav (`AppNav`) still links to `/courses`,
-`/generate`, `/settings` as forward references — they will 404 until
-their milestones land.
+The authenticated nav (`AppNav`) still links to `/courses` and
+`/settings` as forward references — they will 404 until their
+milestones land.
 
 ## API architecture
 
@@ -133,6 +134,9 @@ src/
         upload/page.tsx
         [id]/page.tsx             detail (grouped by year/semester)
         [id]/review/page.tsx      review/edit
+      generate/
+        page.tsx                  syllabus chooser / auto-redirect
+        [id]/page.tsx             year/semester/subject selector
     api/
       auth/[...nextauth]/route.ts
       auth/signup/route.ts
@@ -150,6 +154,8 @@ src/
     syllabi/                      upload-form, review-form, subject-row,
                                    add-subject-form, status badge,
                                    delete/reprocess buttons
+    generate/                     subject-selector (year/semester tabs,
+                                   search, multi-select, count)
   db/
     schema.ts                     user/account/session/verification_token,
                                    syllabus, subject

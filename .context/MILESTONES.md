@@ -89,14 +89,59 @@ until their milestones land.
 
 ---
 
-## Milestone 3 — Academic Organization — `[ ]` Not started
+## Milestone 3 — Academic Organization — `[✓]` Complete
 
-Year/semester/subject selectors, multi-select, search, filtering for
-choosing subjects ahead of course generation. The dashboard and
-`/syllabi` already show real data (done in Milestone 2) — this
-milestone is specifically about the multi-subject *selection* UI that
-feeds into Milestone 4/5/6 course generation, not about the syllabus
-data itself.
+- [x] Year selector — dynamically built from the distinct years
+      actually present in a syllabus's subjects, never hardcoded
+- [x] Semester selector — dynamically built per selected year, only
+      showing semesters that actually have subjects
+- [x] Subject selector — checkbox list, scoped to the selected
+      year+semester (matches the brief's literal flow order: year →
+      semester → subject(s), not a cross-group picker)
+- [x] Multi-select with a live "N Subjects Selected" summary + chips
+- [x] Search — filters the visible year/semester group by name or code
+- [x] Filtering — Select all / Deselect all (scoped to what's visible
+      under the current search) / Clear selection
+- [x] Dashboard — "Generate a course" is now a real link to `/generate`
+      instead of a disabled stub; per-subject "Generate course" links
+      on the syllabus detail page deep-link into `/generate/[id]` with
+      the right year/semester/subject pre-selected
+
+**Verified live** against a real Postgres instance, a real dev server,
+and a freshly-applied migration (not `db:push` this time — confirming
+the committed migration file from Milestone 2 actually works for a
+new setup):
+
+- Uploaded a real two-year, four-semester test PDF; confirmed both
+  years extracted correctly and the selector's year tabs matched
+- `/generate` correctly auto-redirects straight to `/generate/[id]`
+  when exactly one `ready` syllabus exists, shows a real empty state
+  with zero, and shows a chooser listing both when a second syllabus
+  was uploaded and finalized
+- Syllabus detail page's per-subject "Generate course" links carry the
+  correct `year`/`semester`/`subject` query params for every subject
+  across both years — confirmed by inspecting the actual rendered
+  hrefs, not just trusting the code
+- `/generate/[id]` rejects a non-`ready` syllabus and a syllabus
+  belonging to another user with `404` (tested with a second real
+  account, same pattern as Milestone 2's isolation check)
+- Dashboard's "Generate a course" CTA is a real `href="/generate"`
+
+**Explicitly out of scope / known limitations** (do not treat as
+bugs): the "Continue" button at the bottom of the selector is
+deliberately disabled with an explanatory note — there's no Course
+model yet (Milestone 4) and no generation method to continue *to*
+(Milestone 5/6), so a working button here would be misleading. The
+selection itself is not persisted anywhere (pure client state) since
+there's nothing yet for it to be persisted *as* — this is worth
+revisiting once Milestone 4's schema exists, so a user's in-progress
+selection can survive a page refresh. Selection is scoped to a single
+year+semester at a time and resets when you change either — cross-
+year/semester bundled selection was considered and deliberately not
+built, since the brief's own flow (§16) lists year → semester →
+subjects as sequential steps, not a cross-cutting picker.
+
+---
 
 ## Milestone 4 — Course Data Model — `[ ]` Not started
 
@@ -147,8 +192,9 @@ database audit, edge cases, real test coverage, deployment prep.
 
 ## Recommended immediate next step
 
-Before starting Milestone 3: decide the real file-storage target
-(local disk won't survive most deployments — see `DECISIONS.md` open
-questions) if deployment is imminent; otherwise proceed straight to
-Milestone 3's subject-selection UI, which builds on the now-real
-syllabus/subject data from Milestone 2.
+Milestone 4 (Course Data Model) is the natural next step — the
+selector built in Milestone 3 has nothing to hand its selection off to
+yet. Design the `course`/`course_module`/`quiz`/`quiz_question` schema
+and the versioned JSON shape before writing any generation code
+(Milestone 5/6 depend on that schema existing first, not the other way
+around).

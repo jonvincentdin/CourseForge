@@ -93,16 +93,12 @@ export default async function DashboardPage() {
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <span
-            className={buttonVariants({
-              variant: "secondary",
-              size: "sm",
-              className: "cursor-not-allowed opacity-60",
-            })}
-            title="Course generation isn't built yet — see Milestone 5/6"
+          <Link
+            href="/generate"
+            className={buttonVariants({ variant: "secondary", size: "sm" })}
           >
             Generate a course
-          </span>
+          </Link>
         </CardContent>
       </Card>
     </div>

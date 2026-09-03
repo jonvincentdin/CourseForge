@@ -57,13 +57,13 @@ silently re-litigated.
 
 ## Current project status
 
-**Milestones 1 (Foundation) and 2 (Syllabus Management) are complete
-and verified live** — not just build-clean, but exercised against a
-real running Postgres database and a real dev server with actual HTTP
-requests, including cross-user data isolation. See `MILESTONES.md` for
-the precise completion checklist and what's explicitly out of scope so
-far.
+**Milestones 1 through 3 are complete and verified live** — not just
+build-clean, but exercised against a real running Postgres database
+and a real dev server with actual HTTP requests, including cross-user
+data isolation on every ownership-checked route. See `MILESTONES.md`
+for the precise completion checklist and what's explicitly out of
+scope so far.
 
 No course, quiz, sharing, or AI-generation functionality exists yet.
-"Generate course" buttons are visible but disabled — that's
-Milestones 4 through 9.
+The subject selector's "Continue" button is a visible, deliberately
+disabled stub — that's Milestones 4 through 9.

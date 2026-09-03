@@ -158,16 +158,12 @@ export default async function SyllabusDetailPage({
                             {subject.units && (
                               <Badge tone="neutral">{subject.units} units</Badge>
                             )}
-                            <span
-                              className={buttonVariants({
-                                variant: "ghost",
-                                size: "sm",
-                                className: "cursor-not-allowed opacity-60",
-                              })}
-                              title="Course generation isn't built yet — see Milestone 5/6"
+                            <Link
+                              href={`/generate/${syllabus.id}?year=${subject.academicYear}&semester=${encodeURIComponent(subject.semester)}&subject=${subject.id}`}
+                              className={buttonVariants({ variant: "ghost", size: "sm" })}
                             >
                               Generate course
-                            </span>
+                            </Link>
                           </div>
                         </li>
                       ))}

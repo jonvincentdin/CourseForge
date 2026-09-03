@@ -82,7 +82,12 @@ resistance for Next.js + this stack, but nothing here assumes it).
   server (not just `tsc`/`eslint`/`next build`) — signup, login,
   session, route protection, full syllabus upload/extract/review/
   finalize/reprocess/delete, and cross-user data isolation were all
-  exercised with real HTTP requests. If you're picking this project up
-  fresh, `apt-get install postgresql`, `service postgresql start`,
-  `createdb courseforge`, `npm run db:push` gets you a working local
-  database fast for the same kind of verification.
+  exercised with real HTTP requests. Milestones 3 and 4 continued the
+  same practice: real multi-year PDF extraction, real course JSON
+  import with a verified export round-trip, and two real XSS payloads
+  confirmed neutralized in actual rendered output. If you're picking
+  this project up fresh, `apt-get install postgresql`,
+  `service postgresql start`, `createdb courseforge`,
+  `npm run db:migrate` (there are now two migration files — `0000`
+  from Milestones 1/2, `0001` from Milestone 4) gets you a working
+  local database fast for the same kind of verification.

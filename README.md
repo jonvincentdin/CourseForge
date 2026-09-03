@@ -10,12 +10,14 @@ grounded prompt you run in any external AI and import back as JSON.
 
 ## Status
 
-**Milestones 1–3 are complete and verified end-to-end** against a real
+**Milestones 1–4 are complete and verified end-to-end** against a real
 Postgres database and real HTTP requests: accounts, sign in/out,
 syllabus PDF upload/extraction/review/finalize/reprocess/delete, the
-year/semester/subject selection flow, and cross-user data isolation
-throughout. Course generation, the learning experience, and sharing
-are not built yet.
+year/semester/subject selection flow, and course JSON import/export
+with a verified round-trip and confirmed XSS-safe Markdown rendering.
+Cross-user data isolation is enforced and verified throughout. The
+AI-assisted generation workflow, the interactive learning experience,
+and sharing are not built yet.
 
 See [`.context/MILESTONES.md`](.context/MILESTONES.md) for the full
 status, and [`.context/README.md`](.context/README.md) for how this

@@ -38,10 +38,11 @@ assumption of a specific institution's syllabus format.
 
 ## Current implementation
 
-Milestones 1–3: accounts, sign in/out, protected dashboard shell,
-design system, syllabus upload/extraction/review/management, and the
-year/semester/subject selection flow. Everything else in the feature
-list above is not yet built. See `MILESTONES.md`.
+Milestones 1–4: accounts, sign in/out, protected dashboard shell,
+design system, syllabus upload/extraction/review/management, the
+year/semester/subject selection flow, and the course data model
+(schema, Markdown rendering, JSON import/export). Everything else in
+the feature list above is not yet built. See `MILESTONES.md`.
 
 ## Important constraints
 

@@ -109,6 +109,60 @@ requirement for basic upload to work.
 
 ---
 
+**Decision:** `course.subject_id` and `course.syllabus_id` are
+nullable foreign keys with `onDelete: "set null"`, not cascade delete.
+
+**Reason:** A course is a point-in-time snapshot of Markdown/quiz
+content, not a live view of its source syllabus. If a user deletes the
+syllabus a course was generated from, the course itself must keep
+working — the brief never suggests deleting a syllabus should destroy
+courses generated from it, and doing so would be a genuinely
+surprising, destructive default. The FK is kept (not dropped entirely)
+purely for provenance/display ("generated from X"); `set null` means
+that display detail quietly degrades instead of the course vanishing.
+
+**Date:** 2026-09-03
+
+---
+
+**Decision:** Markdown is rendered via `react-markdown` + `remark-gfm`
+**without** `rehype-raw`, and no separate HTML-sanitizer library
+(e.g. `dompurify`, `rehype-sanitize`) was added.
+
+**Reason:** `react-markdown` without `rehype-raw` never parses
+embedded HTML as markup in the first place — it's escaped to literal
+text. That's a stronger default than "sanitize after parsing raw
+HTML," and it means there's no sanitizer configuration to get subtly
+wrong. Verified live with two real payloads (see `SECURITY.md`). If a
+future milestone needs to support raw HTML in Markdown for some
+legitimate reason, `rehype-raw` must not be added without a real
+sanitizer alongside it in the same change — never as two separate
+steps.
+
+**Date:** 2026-09-03
+
+---
+
+**Decision:** The Milestone 4 import UI is a bare paste-JSON textarea
+with an "Use example JSON" convenience button — no prompt generator,
+no "copy this into ChatGPT" flow, no schema-download button.
+
+**Reason:** Those are explicitly Milestone 5 deliverables (external AI
+workflow — product brief's own milestone breakdown). Building them
+into Milestone 4 would blur the boundary between "the data model and
+its validation work" (this milestone's actual job) and "a polished
+AI-assisted authoring experience" (Milestone 5's job), and risks doing
+Milestone 5's UI work without yet having thought through its specific
+requirements (prompt content grounded in syllabus data, JSON schema
+download, copy-to-clipboard UX). The underlying `validateCourseImport`
++ `importCourseFromJson` functions this milestone built are exactly
+what Milestone 5's polished UI will call — nothing here needs to be
+rebuilt, only wrapped in better UI.
+
+**Date:** 2026-09-03
+
+---
+
 ## Open questions (not yet decided — flag before Milestone 2 starts)
 
 - **AI provider abstraction shape** (Milestone 6): what the common

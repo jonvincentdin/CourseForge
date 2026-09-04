@@ -112,6 +112,24 @@ export const courseImportSchema = z.object({
 export type CourseImport = z.infer<typeof courseImportSchema>;
 export type QuestionImport = z.infer<typeof questionSchema>;
 
+/**
+ * Real JSON Schema (draft 2020-12), generated directly from the same
+ * zod schema that validates imports — so the downloadable schema and
+ * the actual validation logic can never drift apart. Used by
+ * Milestone 5's "Download JSON Schema" button.
+ */
+export function getCourseJsonSchema() {
+  const schema = z.toJSONSchema(courseImportSchema);
+  return {
+    ...schema,
+    title: "CourseForge Course Import",
+    description:
+      "Schema for course JSON that CourseForge can import. schema_version must be \"" +
+      CURRENT_SCHEMA_VERSION +
+      "\".",
+  };
+}
+
 export interface ImportValidationResult {
   ok: boolean;
   data?: CourseImport;

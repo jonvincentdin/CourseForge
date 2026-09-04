@@ -10,11 +10,14 @@ export function ImportCourseForm({
   syllabusId,
   subjectLabel,
   exampleJson,
+  hideHeader = false,
 }: {
   subjectId: string;
   syllabusId: string;
   subjectLabel: string;
   exampleJson: string;
+  /** When true, renders without its own Card/header — used when a parent (e.g. SubjectPromptPanel) already provides that chrome. */
+  hideHeader?: boolean;
 }) {
   const [json, setJson] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -42,67 +45,70 @@ export function ImportCourseForm({
     setCreatedCourseId(body.course.id);
   }
 
-  if (createdCourseId) {
-    return (
-      <Card>
-        <CardHeader>
-          <CardTitle>{subjectLabel}</CardTitle>
-          <CardDescription>Course created.</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <Link
-            href={`/courses/${createdCourseId}`}
-            className="text-sm font-medium text-ink hover:text-ember"
-          >
-            Open the course →
-          </Link>
-        </CardContent>
-      </Card>
-    );
+  const successContent = (
+    <>
+      <p className="text-sm text-forge-green">Course created.</p>
+      <Link
+        href={`/courses/${createdCourseId}`}
+        className="mt-1 inline-block text-sm font-medium text-ink hover:text-ember"
+      >
+        Open the course →
+      </Link>
+    </>
+  );
+
+  const formContent = (
+    <>
+      <textarea
+        value={json}
+        onChange={(e) => setJson(e.target.value)}
+        rows={10}
+        placeholder="Paste course JSON here…"
+        className="w-full rounded-md border border-line-strong bg-paper-raised px-3 py-2 font-mono text-xs text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ember"
+      />
+
+      {errors.length > 0 && (
+        <ul className="mt-3 space-y-1 rounded-md border border-danger-soft bg-danger-soft/40 px-4 py-3">
+          {errors.map((error) => (
+            <li key={error} className="text-sm text-danger">
+              {error}
+            </li>
+          ))}
+        </ul>
+      )}
+
+      <div className="mt-3 flex flex-wrap items-center gap-3">
+        <Button onClick={handleSubmit} disabled={isSubmitting || json.trim().length === 0}>
+          {isSubmitting ? "Importing…" : "Import course"}
+        </Button>
+        <button
+          type="button"
+          className="text-sm text-ink-soft hover:text-ink"
+          onClick={() => setJson(exampleJson)}
+        >
+          Use example JSON
+        </button>
+      </div>
+    </>
+  );
+
+  if (hideHeader) {
+    return <div>{createdCourseId ? successContent : formContent}</div>;
   }
 
   return (
     <Card>
       <CardHeader>
         <CardTitle>{subjectLabel}</CardTitle>
-        <CardDescription>
-          Paste course JSON that matches CourseForge&apos;s schema (
-          <code className="font-mono text-xs">schema_version: &quot;1.0&quot;</code>
-          ).
-        </CardDescription>
-      </CardHeader>
-      <CardContent>
-        <textarea
-          value={json}
-          onChange={(e) => setJson(e.target.value)}
-          rows={10}
-          placeholder="Paste course JSON here…"
-          className="w-full rounded-md border border-line-strong bg-paper-raised px-3 py-2 font-mono text-xs text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ember"
-        />
-
-        {errors.length > 0 && (
-          <ul className="mt-3 space-y-1 rounded-md border border-danger-soft bg-danger-soft/40 px-4 py-3">
-            {errors.map((error) => (
-              <li key={error} className="text-sm text-danger">
-                {error}
-              </li>
-            ))}
-          </ul>
+        {!createdCourseId && (
+          <CardDescription>
+            Paste course JSON that matches CourseForge&apos;s schema (
+            <code className="font-mono text-xs">schema_version: &quot;1.0&quot;</code>
+            ).
+          </CardDescription>
         )}
-
-        <div className="mt-3 flex flex-wrap items-center gap-3">
-          <Button onClick={handleSubmit} disabled={isSubmitting || json.trim().length === 0}>
-            {isSubmitting ? "Importing…" : "Import course"}
-          </Button>
-          <button
-            type="button"
-            className="text-sm text-ink-soft hover:text-ink"
-            onClick={() => setJson(exampleJson)}
-          >
-            Use example JSON
-          </button>
-        </div>
-      </CardContent>
+      </CardHeader>
+      <CardContent>{createdCourseId ? successContent : formContent}</CardContent>
     </Card>
   );
 }

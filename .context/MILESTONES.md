@@ -207,10 +207,57 @@ formatting.
 
 ---
 
-## Milestone 5 — External AI Workflow — `[ ]` Not started
+## Milestone 5 — External AI Workflow — `[✓]` Complete
 
-Prompt generator, JSON schema download, JSON import + validation. See
-`AI_GENERATION.md`.
+- [x] Prompt generator — `src/lib/prompt-generator.ts`, grounded in
+      real subject + syllabus data (never generic), depth-aware,
+      recomputes live client-side as settings change
+- [x] JSON schema — real JSON Schema (draft 2020-12) generated
+      directly from the Milestone 4 zod schema via zod v4's native
+      `z.toJSONSchema()`, so it cannot drift from the actual validator
+- [x] Prompt copying — clipboard button per subject, with a fallback
+      if the clipboard API is unavailable
+- [x] JSON schema download — `GET /api/courses/schema`, deliberately
+      public/unauthenticated since it's static format documentation,
+      not user data
+- [x] JSON import — reuses Milestone 4's `importCourseFromJson`
+      unchanged, now exercised through the real UI form with real
+      subject/syllabus provenance for the first time
+- [x] Validation — unchanged from Milestone 4, this milestone adds no
+      new validation logic, only a better front-end to the same rules
+- [x] Error handling — unchanged, same specific field-path errors
+
+**Verified live**, not just build-clean — real Postgres, real dev
+server, real HTTP requests in the same session:
+
+- Generated a real prompt from real syllabus/subject rows pulled from
+  Postgres and confirmed the actual embedded syllabus excerpt, subject
+  fields, and `schema_version` appeared correctly in the rendered page
+- Confirmed the JSON Schema download works with **zero** auth cookies
+  — deliberately public, and verified it actually is
+- Uploaded a real 2-subject syllabus; confirmed `/generate/[id]/prompt`
+  rendered two independent prompt+import panels, one per subject
+- Imported a real course through the actual UI form's code path (not
+  a bypassing direct API call) and confirmed the resulting course
+  correctly carried `subject_id`/`syllabus_id` provenance — Milestone
+  4's own verification hadn't exercised that path, so this closes a
+  real gap rather than repeating the same test
+- A tampered/nonexistent subject id in the page's query string
+  correctly 404s
+
+**Explicitly out of scope / known limitations** (do not treat as
+bugs): "Direct AI Generation" is shown but genuinely disabled with a
+"Coming in Milestone 6" label — not hidden, not faked. Modules,
+Markdown lessons, and Module quizzes in the "Include" section are
+locked/required, not real toggles — unchecking any of them would
+produce JSON that fails Milestone 4's own schema validation, so
+offering them as working options would be dishonest. The syllabus
+context embedded in each prompt is capped at 4,000 characters — for a
+very long syllabus PDF this means only the first ~4,000 characters of
+extracted text ground the prompt, not the whole document; revisit if
+this proves too limiting in practice.
+
+---
 
 ## Milestone 6 — Direct AI Generation — `[ ]` Not started
 
@@ -251,12 +298,14 @@ database audit, edge cases, real test coverage, deployment prep.
 
 ## Recommended immediate next step
 
-Milestone 5 (External AI Workflow) builds directly on Milestone 4's
-schema and import capability: a prompt generator that produces a
-syllabus-grounded prompt (subject, code, year, semester, syllabus
-context, the JSON schema, validation requirements) for the user to
-paste into any external AI, a "download the JSON schema" button
-(reuse `EXAMPLE_COURSE_IMPORT`/the zod schema from
-`course-schema.ts`), and wiring the existing bare-textarea import UI
-into that flow instead of standing alone. No new DB schema should be
-needed — this is almost entirely a UI/prompt-construction milestone.
+Milestone 6 (Direct AI Generation) is next: a provider-agnostic AI
+architecture, per-user encrypted API key storage (the non-negotiable
+rules are already written in `SECURITY.md` — follow them exactly, they
+predate this milestone and weren't written loosely), an AI
+configuration page, and a real "Direct AI Generation" option that
+finally lights up the currently-disabled radio button in
+`CoursePromptGenerator`. The generation call itself should validate
+its output through the exact same `validateCourseImport` /
+`importCourseFromJson` pipeline Milestones 4 and 5 already built and
+verified — no new validation logic should be needed, only a new way
+to produce the JSON that gets fed into it.

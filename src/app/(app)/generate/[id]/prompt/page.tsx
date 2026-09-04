@@ -6,6 +6,7 @@ import { auth } from "@/lib/auth";
 import { db } from "@/db";
 import { subjects } from "@/db/schema";
 import { getOwnedSyllabus } from "@/lib/syllabus-service";
+import { getAiConfigStatus } from "@/lib/ai-config-service";
 import { CoursePromptGenerator } from "@/components/generate/course-prompt-generator";
 
 export const metadata: Metadata = {
@@ -40,6 +41,8 @@ export default async function GeneratePromptPage({
   const validSubjects = rows.filter((s) => s.syllabusId === id);
   if (validSubjects.length === 0) notFound();
 
+  const aiStatus = await getAiConfigStatus(session!.user.id);
+
   return (
     <div className="mx-auto max-w-3xl">
       <Link
@@ -62,6 +65,7 @@ export default async function GeneratePromptPage({
           syllabusId={id}
           syllabus={{ title: syllabus.title, extractedText: syllabus.extractedText }}
           subjects={validSubjects}
+          hasAiConfig={aiStatus.configured}
         />
       </div>
     </div>

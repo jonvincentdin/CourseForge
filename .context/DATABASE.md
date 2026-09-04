@@ -110,9 +110,19 @@ this satisfies the brief without a more complex version-graph model.
 | explanation | text, nullable | |
 | sort_order | integer, default 0 | |
 
+### `ai_provider_config` (Milestone 6)
+| Column | Type | Notes |
+|---|---|---|
+| id | uuid, PK | |
+| user_id | uuid, FK → `user.id`, cascade delete, **unique** | one configuration per user — see `DECISIONS.md` |
+| provider | text | e.g. `"anthropic"`, `"openai"` — matches a key in `src/lib/ai/index.ts`'s `AI_PROVIDERS` registry, not a DB enum (keeps adding a provider a code-only change, no migration needed) |
+| encrypted_api_key | text | **never plaintext.** Written/read exclusively through `src/lib/encryption.ts`. Verified live: the actual column content is unreadable AES-256-GCM ciphertext, confirmed by querying it directly after a real save through the real API |
+| model | text | free-text model id — see `DECISIONS.md` |
+| created_at / updated_at | timestamp | |
+
 ## Relationships
 
-- `account.user_id` / `session.user_id` / `syllabus.user_id` / `course.owner_id` → `user.id`, cascade delete
+- `account.user_id` / `session.user_id` / `syllabus.user_id` / `course.owner_id` / `ai_provider_config.user_id` → `user.id`, cascade delete
 - `subject.syllabus_id` → `syllabus.id`, cascade delete (verified: deleting a syllabus removes its subjects)
 - `course.subject_id` / `course.syllabus_id` → `subject.id` / `syllabus.id`, **`set null`** on delete — a course is a snapshot, not a live reference; deleting its source syllabus must never delete or orphan the course (see `DECISIONS.md`)
 - `course_module.course_id` → `course.id`, cascade delete
@@ -121,9 +131,9 @@ this satisfies the brief without a more complex version-graph model.
 
 ## Indexes
 
-`user.email` has a unique constraint (and therefore an index).
-`quiz.module_id` has a unique constraint. No other indexes yet — no
-query pattern has needed one at this scale. Revisit
+`user.email`, `quiz.module_id`, and `ai_provider_config.user_id` each
+have a unique constraint (and therefore an index). No other indexes
+yet — no query pattern has needed one at this scale. Revisit
 `subject.syllabus_id`, `syllabus.user_id`, and `course.owner_id` if
 listing pages get slow with real data volume.
 
@@ -133,11 +143,12 @@ Original PDFs are stored via `src/lib/storage.ts` (local filesystem
 today; see `DECISIONS.md`), keyed by `syllabus.storage_key`, not
 inside Postgres itself. Course content (Markdown, quiz data) lives
 entirely in Postgres — no separate file storage needed for it.
+Encrypted API keys also live entirely in Postgres — no external
+secrets manager yet (see `DECISIONS.md`).
 
 ## Not yet modeled (owned by later milestones — do not invent these tables early)
 
 - CourseProgress (Milestone 7)
-- AIProviderConfiguration (Milestone 6)
 - CourseShare / CoursePermission / CourseInvitation (Milestone 9)
 
 ## Known gaps

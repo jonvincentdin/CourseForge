@@ -24,27 +24,41 @@ export type ImportCourseResult =
 
 export interface ImportCourseInput {
   ownerId: string;
-  /** Raw, not-yet-parsed JSON text from the user's paste box. */
+  /** Raw, not-yet-parsed JSON text — from a user's paste box (Milestone 4/5) or a raw AI completion (Milestone 6). */
   rawJson: string;
   /** Provenance only — never trust these for authorization beyond the ownership check below. */
   subjectId?: string;
   syllabusId?: string;
+  /** "imported" for anything a human pasted in; "generated" for Milestone 6's direct AI path. Defaults to "imported". */
+  source?: "imported" | "generated";
+}
+
+/**
+ * Some AIs wrap JSON in a Markdown code fence despite being told not
+ * to. Stripping a single leading/trailing fence (with or without a
+ * `json` language tag) before parsing costs nothing for input that
+ * doesn't have one, and saves a real, common failure mode for input
+ * that does.
+ */
+function stripCodeFence(text: string): string {
+  const trimmed = text.trim();
+  const fenced = trimmed.match(/^```(?:json)?\s*\n([\s\S]*?)\n?```$/i);
+  return fenced ? fenced[1].trim() : trimmed;
 }
 
 /**
  * Parses, validates, and persists a course from raw JSON text. This is
  * the shared entry point for every import path (Milestone 4's bare
- * paste-JSON UI today; Milestone 5's external-AI-prompt flow and
- * Milestone 6's direct-AI flow both funnel through this same
- * validator later, so the acceptance bar never depends on where the
- * JSON came from).
+ * paste-JSON UI, Milestone 5's external-AI-prompt flow, and Milestone
+ * 6's direct-AI flow all funnel through this same validator, so the
+ * acceptance bar never depends on where the JSON came from).
  */
 export async function importCourseFromJson(
   input: ImportCourseInput
 ): Promise<ImportCourseResult> {
   let parsed: unknown;
   try {
-    parsed = JSON.parse(input.rawJson);
+    parsed = JSON.parse(stripCodeFence(input.rawJson));
   } catch (err) {
     return {
       ok: false,
@@ -72,6 +86,7 @@ export async function importCourseFromJson(
   const course = await persistImportedCourse(input.ownerId, validation.data, {
     subjectId: input.subjectId,
     syllabusId: input.syllabusId,
+    source: input.source ?? "imported",
   });
 
   return { ok: true, course };
@@ -80,7 +95,7 @@ export async function importCourseFromJson(
 async function persistImportedCourse(
   ownerId: string,
   data: CourseImport,
-  provenance: { subjectId?: string; syllabusId?: string }
+  provenance: { subjectId?: string; syllabusId?: string; source: "imported" | "generated" }
 ): Promise<Course> {
   return db.transaction(async (tx) => {
     const [course] = await tx
@@ -96,7 +111,7 @@ async function persistImportedCourse(
         description: data.course.description ?? null,
         learningObjectives: data.course.learning_objectives ?? [],
         schemaVersion: data.schema_version,
-        source: "imported",
+        source: provenance.source,
       })
       .returning();
 

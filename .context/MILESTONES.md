@@ -259,11 +259,81 @@ this proves too limiting in practice.
 
 ---
 
-## Milestone 6 — Direct AI Generation — `[ ]` Not started
+## Milestone 6 — Direct AI Generation — `[✓]` Complete
 
-Provider-agnostic AI architecture, AI configuration UI, encrypted
-API-key storage, generation with progress UI. See `AI_GENERATION.md`
-and `SECURITY.md`'s "Required for future milestones."
+- [x] AI provider architecture — `src/lib/ai/`: a real `AIProvider`
+      interface, two implementations (Anthropic, OpenAI), one
+      registry. Adding a provider means one new file + one registry
+      line, nothing else changes — verified true by construction, not
+      just claimed
+- [x] AI configuration — `/settings`, provider select, API key input,
+      free-text model, Test Connection, Save/Replace/Remove, matching
+      the product brief §37 mockup
+- [x] Secure API-key encryption — AES-256-GCM
+      (`src/lib/encryption.ts`), `ENCRYPTION_KEY` env var stretched via
+      `scryptSync`
+- [x] Course generation — `POST /api/courses/generate`, reuses the
+      exact same prompt (`buildCoursePrompt`) and the exact same
+      validation/persistence pipeline (`importCourseFromJson`) that
+      Milestones 4/5 already built, tagged `source: "generated"`
+- [x] Progress UI — staged checklist per product brief §79, honestly
+      documented as client-side simulated (no real per-stage server
+      signal — see `AI_GENERATION.md` for why)
+- [x] AI validation — no new validation logic; the AI's raw response
+      goes through the identical schema validation as any pasted JSON
+- [x] Error handling — provider-specific errors (invalid key, missing
+      model, rate limit) surfaced with specific, non-leaking messages;
+      generation failures create zero orphaned data
+
+**Verified live against a real provider API, not a mock** — the
+strongest verification any milestone has had so far:
+
+- Confirmed `api.anthropic.com` is actually reachable from this build
+  sandbox, then made a real HTTP call with a deliberately invalid key
+  and got a genuine `401` back from Anthropic's real API — not a
+  simulated error
+- That real rejection was correctly translated into a specific,
+  non-leaking error message at every layer it passed through: the
+  provider implementation, the `/api/ai-config/test` route, the
+  `/api/courses/generate` route (as a `502`), and the UI
+- Saved a real (fake) key through the real `/api/ai-config` endpoint
+  and confirmed, by querying Postgres directly, that the stored
+  `encrypted_api_key` column is genuinely unreadable ciphertext — not
+  just "assumed encrypted because the code calls `encryptSecret`"
+- Confirmed the key never appears in the save response, the status
+  response, or the rendered `/settings` page HTML — checked all three
+  with a direct string search, not just a visual skim
+- Confirmed the "test my already-saved key" code path (no `apiKey` in
+  the request body) correctly decrypts server-side and makes a real
+  outbound call — proving the full save → store → retrieve → decrypt
+  → use round-trip actually works, not just the encrypt/decrypt
+  functions in isolation
+- Ran a full generation attempt through the real API with the invalid
+  key and confirmed it fails with the correct error and creates
+  **zero** rows in `course` — no orphaned/partial data from a failed
+  generation
+- Cross-user isolation extended to AI config and generation: a second
+  real account has no access to the first account's configuration,
+  and correctly gets `404` (not an AI-related error) when attempting
+  to generate against the first account's syllabus — ownership is
+  checked before the AI config is ever looked up
+- Confirmed removing a configuration actually deletes the database row
+  (checked via a direct count query), not just flips a flag
+
+**Explicitly out of scope / known limitations** (do not treat as
+bugs): the OpenAI provider was written to match OpenAI's real API
+shape but **could not be live-verified** — `api.openai.com` wasn't
+reachable from this build sandbox (only `api.anthropic.com` was). If
+you add real OpenAI usage, verify it the same rigorous way before
+trusting it. Model selection is free text, not a curated dropdown —
+see `DECISIONS.md`. No usage/cost tracking, no retry on transient
+provider errors (a `429` surfaces immediately rather than
+auto-retrying). Prompt injection via syllabus text is a known,
+documented, not-yet-mitigated gap — see `SECURITY.md`'s "Known gap"
+section; it's a content-quality risk, not a data-integrity one, since
+generated output still passes through full schema validation.
+
+---
 
 ## Milestone 7 — Learning Experience — `[ ]` Not started
 
@@ -298,14 +368,13 @@ database audit, edge cases, real test coverage, deployment prep.
 
 ## Recommended immediate next step
 
-Milestone 6 (Direct AI Generation) is next: a provider-agnostic AI
-architecture, per-user encrypted API key storage (the non-negotiable
-rules are already written in `SECURITY.md` — follow them exactly, they
-predate this milestone and weren't written loosely), an AI
-configuration page, and a real "Direct AI Generation" option that
-finally lights up the currently-disabled radio button in
-`CoursePromptGenerator`. The generation call itself should validate
-its output through the exact same `validateCourseImport` /
-`importCourseFromJson` pipeline Milestones 4 and 5 already built and
-verified — no new validation logic should be needed, only a new way
-to produce the JSON that gets fed into it.
+Milestone 7 (Learning Experience) is next: turn `/courses/[id]`'s
+read-only structural preview into a real course viewer — module
+navigation (previous/next, a sidebar/progress list), the interactive
+quiz UI (all 4 question types already have their data shape defined in
+`course-schema.ts`, they just need a UI: submit → score → correct/
+incorrect per question → explanation), and `CourseProgress` tracking
+(the one remaining "not yet modeled" table from `DATABASE.md`). The
+Markdown renderer, quiz question data, and course structure all
+already exist and are verified — this milestone is UI and one new
+small table, not new data-model work.

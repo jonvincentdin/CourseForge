@@ -163,6 +163,44 @@ rebuilt, only wrapped in better UI.
 
 ---
 
+**Decision:** One AI provider configuration per user (unique on
+`user_id`), not multiple simultaneous configs.
+
+**Reason:** The settings UI the brief describes (§37) is a single
+provider/key/model form, not a list of saved providers to switch
+between. Multiple simultaneous configs would need a "which one is
+active" concept the brief never asks for, adding real complexity for
+a need that doesn't currently exist. Provider-agnosticism is satisfied
+by the swap-the-provider-id-and-values Replace flow already built,
+which works fine for the "I use one provider" and "I occasionally
+switch providers" cases alike — only "use two providers side by side"
+would need a real schema change, and nothing in the brief asks for
+that.
+
+**Date:** 2026-09-04
+
+---
+
+**Decision:** The AI model field in `/settings` is free text with a
+provider-specific placeholder, not a hardcoded dropdown of known model
+ids.
+
+**Reason:** Any hardcoded list of "current" model ids for a fast-moving
+API landscape risks going stale (a genuinely valid model released
+after this was written would be unusable through a fixed dropdown, or
+worse, a dropdown could list a since-deprecated one as if it still
+worked). Free text with a realistic placeholder example is honest
+about not knowing the future, costs nothing to keep correct, and still
+guides the user toward a reasonable value. If a future session wants a
+curated dropdown, fetching the real current list from each provider's
+own models-list endpoint (rather than hand-maintaining one) would be
+the more honest approach — not hardcoding one from training-data
+knowledge that may already be stale by the time it's written.
+
+**Date:** 2026-09-04
+
+---
+
 ## Open questions (not yet decided — flag before Milestone 2 starts)
 
 - **AI provider abstraction shape** (Milestone 6): what the common

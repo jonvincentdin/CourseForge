@@ -55,14 +55,14 @@ see `DECISIONS.md`.
 | `/generate/[id]/prompt` | Authenticated, ownership-checked | Built — generation settings, per-subject AI prompt + copy + JSON import |
 | `/courses` | Authenticated | Built — minimal list (full management is Milestone 8) |
 | `/courses/[id]` | Authenticated, ownership-checked | Built — read-only structural preview (interactive learning is Milestone 7) |
-| `/settings` | Authenticated | Not built (Milestone 6) |
+| `/settings` | Authenticated | Built — AI provider configuration |
 | `/share/[token]` | Public, server-authorized | Not built (Milestone 9) |
 
 `GET /api/courses/schema` is deliberately **public/unauthenticated** —
 static format documentation, not user data.
 
-The authenticated nav (`AppNav`) still links to `/settings` as a
-forward reference — it will 404 until Milestone 6 lands.
+Every route the authenticated nav (`AppNav`) links to now exists —
+`/settings` was the last forward reference and Milestone 6 built it.
 
 ## API architecture
 
@@ -93,23 +93,40 @@ Protected server layouts (`(app)/layout.tsx`) additionally call
 `auth()` and redirect server-side — defense in depth, not just
 middleware.
 
-## AI architecture
+## AI architecture (Milestone 6)
 
-Not built. See `AI_GENERATION.md`.
+`src/lib/ai/types.ts` defines the provider-agnostic contract
+(`AIProvider`: `testConnection`, `generateCompletion`).
+`src/lib/ai/providers/{anthropic,openai}.ts` are the two current
+implementations; `src/lib/ai/index.ts`'s `AI_PROVIDERS` map is the
+single registry everything else reads from. `src/lib/encryption.ts` is
+the only place a plaintext API key is ever encrypted/decrypted;
+`src/lib/ai-config-service.ts` wraps it with DB access and marks the
+decrypt path (`getDecryptedConfigForUser`) explicitly internal-only.
+`POST /api/courses/generate` is the only caller of that internal path
+— it builds the same prompt Milestone 5's UI shows the user, calls the
+provider, and feeds the raw response through the same
+`importCourseFromJson` pipeline as every other import path, tagged
+`source: "generated"`. See `AI_GENERATION.md` for what was and wasn't
+live-verified (Anthropic: yes, against a real API call; OpenAI: code
+matches the real API shape but wasn't network-reachable to verify).
 
-## Course architecture (Milestone 4, extended in Milestone 5)
+## Course architecture (Milestone 4, extended in Milestones 5–6)
 
 `src/lib/course-schema.ts` defines the versioned JSON schema (zod) and
-is the single source of truth both the import path (built in
-Milestone 4) and Milestone 5's prompt-generation path (built now) must
-satisfy — Milestone 5 adds no new validation logic, only a better
-front-end (`buildCoursePrompt` in `src/lib/prompt-generator.ts`) that
-tells an external AI how to produce JSON that already satisfies the
-Milestone 4 rules, plus `getCourseJsonSchema()` which derives a real
-JSON Schema from the same zod schema via `z.toJSONSchema()` — nothing
-that could drift out of sync. `src/lib/course-service.ts` orchestrates:
-parse → validate → (if provenance supplied) re-verify ownership →
-persist inside one `db.transaction`. `courseToExportJson` is the exact
+is the single source of truth every generation path (Milestone 4's
+manual import, Milestone 5's external-AI-prompt path, Milestone 6's
+direct-AI path) must satisfy — none of them define their own parallel
+validation. `buildCoursePrompt` (`src/lib/prompt-generator.ts`) is
+shared unchanged between Milestones 5 and 6 — the only difference
+between "copy this into ChatGPT" and "generate directly" is who sends
+the prompt to the AI and who pastes the response back.
+`getCourseJsonSchema()` derives a real JSON Schema from the same zod
+schema via `z.toJSONSchema()` — nothing that could drift out of sync.
+`src/lib/course-service.ts` orchestrates: parse (defensively stripping
+a Markdown code fence if present — common in real AI output) →
+validate → (if provenance supplied) re-verify ownership → persist
+inside one `db.transaction`. `courseToExportJson` is the exact
 inverse, used by the export route — verified live to round-trip
 cleanly through the same validator.
 
@@ -158,6 +175,8 @@ src/
       courses/
         page.tsx                  minimal list
         [id]/page.tsx             read-only structural preview
+      settings/
+        page.tsx                  AI provider configuration
     api/
       auth/[...nextauth]/route.ts
       auth/signup/route.ts
@@ -170,6 +189,9 @@ src/
       courses/import/route.ts                            POST
       courses/[id]/export/route.ts                       GET
       courses/schema/route.ts                            GET (public)
+      courses/generate/route.ts                          POST
+      ai-config/route.ts                                 GET, POST, DELETE
+      ai-config/test/route.ts                            POST
   components/
     ui/                           button, input, label, card, badge
     marketing/                    navbar, hero-visual
@@ -180,8 +202,9 @@ src/
                                    delete/reprocess buttons
     generate/                     subject-selector, course-prompt-generator
                                    (settings), subject-prompt-panel,
-                                   import-course-form
+                                   import-course-form, direct-generate-panel
     courses/                      markdown-content (sanitized renderer)
+    settings/                     ai-config-form
   db/
     schema.ts                     user/account/session/verification_token,
                                    syllabus, subject, course, course_module,
@@ -201,6 +224,15 @@ src/
                                    + real JSON Schema export
     course-service.ts             import/export orchestration
     prompt-generator.ts           syllabus-grounded AI prompt builder
+    encryption.ts                 AES-256-GCM for AI API keys
+    ai-config-service.ts          save/read/delete AI config (the only
+                                   place decrypted keys exist besides
+                                   a provider's own outbound call)
+    ai/
+      types.ts                    AIProvider contract
+      index.ts                    provider registry
+      providers/anthropic.ts
+      providers/openai.ts
   types/
     next-auth.d.ts                session.user.id augmentation
 drizzle.config.ts

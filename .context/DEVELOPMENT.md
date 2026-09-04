@@ -82,12 +82,19 @@ resistance for Next.js + this stack, but nothing here assumes it).
   server (not just `tsc`/`eslint`/`next build`) — signup, login,
   session, route protection, full syllabus upload/extract/review/
   finalize/reprocess/delete, and cross-user data isolation were all
-  exercised with real HTTP requests. Milestones 3 and 4 continued the
-  same practice: real multi-year PDF extraction, real course JSON
-  import with a verified export round-trip, and two real XSS payloads
-  confirmed neutralized in actual rendered output. If you're picking
-  this project up fresh, `apt-get install postgresql`,
-  `service postgresql start`, `createdb courseforge`,
-  `npm run db:migrate` (there are now two migration files — `0000`
-  from Milestones 1/2, `0001` from Milestone 4) gets you a working
-  local database fast for the same kind of verification.
+  exercised with real HTTP requests. Milestones 3, 4, and 5 continued
+  the same practice: real multi-year PDF extraction, real course JSON
+  import with a verified export round-trip, two real XSS payloads
+  confirmed neutralized in actual rendered output, and a real
+  generated prompt confirmed grounded in real DB-backed data.
+  Milestone 6 went further still — it made a real HTTP call to
+  `api.anthropic.com` with a deliberately invalid key and verified the
+  entire encryption/error-handling pipeline against a genuine external
+  API rejection, not a mock. If you're picking this project up fresh,
+  `apt-get install postgresql`, `service postgresql start`,
+  `createdb courseforge`, `npm run db:migrate` (there are now three
+  migration files — `0000` from Milestones 1/2, `0001` from Milestone
+  4, `0002` from Milestone 6) gets you a working local database fast
+  for the same kind of verification. Set a real `ENCRYPTION_KEY`
+  before testing anything AI-config-related, or `saveAiConfig`/
+  `decryptSecret` will throw.

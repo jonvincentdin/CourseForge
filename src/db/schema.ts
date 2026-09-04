@@ -14,7 +14,8 @@ import type { AdapterAccountType } from "@auth/core/adapters";
 /**
  * Milestone 1 scope: authentication + user foundation.
  * Milestone 2 scope: syllabus + subject storage.
- * Milestone 4 scope: course/module/quiz storage (added below).
+ * Milestone 4 scope: course/module/quiz storage.
+ * Milestone 6 scope: per-user AI provider configuration (added below).
  * Progress and Sharing tables are introduced in their respective
  * milestones (see .context/DATABASE.md and .context/MILESTONES.md) —
  * they are intentionally NOT stubbed here so the schema never implies
@@ -251,3 +252,33 @@ export type NewCourseModule = typeof courseModules.$inferInsert;
 export type Quiz = typeof quizzes.$inferSelect;
 export type QuizQuestion = typeof quizQuestions.$inferSelect;
 export type NewQuizQuestion = typeof quizQuestions.$inferInsert;
+
+// ---------------------------------------------------------------------------
+// Milestone 6 — Direct AI Generation
+// ---------------------------------------------------------------------------
+
+/**
+ * One configuration per user (unique on user_id) — the settings page
+ * is deliberately simple: pick a provider, paste a key, done. Storing
+ * multiple simultaneous provider configs per user was considered and
+ * not built; see .context/DECISIONS.md.
+ *
+ * encrypted_api_key is written/read exclusively through
+ * src/lib/encryption.ts — never store or return a plaintext key
+ * anywhere near this table (see .context/SECURITY.md).
+ */
+export const aiProviderConfigs = pgTable("ai_provider_config", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  userId: uuid("user_id")
+    .notNull()
+    .unique()
+    .references(() => users.id, { onDelete: "cascade" }),
+  provider: text("provider").notNull(),
+  encryptedApiKey: text("encrypted_api_key").notNull(),
+  model: text("model").notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export type AIProviderConfig = typeof aiProviderConfigs.$inferSelect;
+export type NewAIProviderConfig = typeof aiProviderConfigs.$inferInsert;

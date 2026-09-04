@@ -36,14 +36,25 @@
   belonging to the authenticated user — verified live that a second
   account cannot attribute an import to another user's syllabus by
   supplying its id.
+- **AI API key encryption** (Milestone 6): AES-256-GCM via
+  `src/lib/encryption.ts`, `ENCRYPTION_KEY` stretched with `scryptSync`.
+  Verified live against the actual running app, not just in isolation:
+  saved a real key through the real endpoint, confirmed the database
+  column holds genuinely unreadable ciphertext, confirmed the key
+  never appears in the save response, the status response, or the
+  rendered settings page HTML. Decryption happens exclusively inside
+  `getDecryptedConfigForUser` (explicitly marked internal-only) and
+  the two provider implementations' outbound `fetch` calls — nothing
+  that returns data to a client ever touches a decrypted key. Every
+  rule from this file's "Required for future milestones" §API keys
+  entry (written before this milestone) was followed exactly: no
+  plaintext storage, no client exposure, no logging, no key material
+  in error messages (verified live — a real Anthropic `401` error was
+  surfaced to the user with a clear message and zero trace of the key
+  that caused it), no decrypted key returned by any API response.
 
 ## Required for future milestones (do not build these features without this)
 
-- **API keys** (Milestone 6): encrypt server-side before persistence;
-  decrypt only server-side; never return a decrypted key from any API
-  response; never log a key; never send a key in an error message.
-  Frontend only ever sees a masked value + a configured/not-configured
-  status.
 - **Share tokens** (Milestone 9): cryptographically secure random
   tokens, not sequential/guessable IDs. Every protected read must
   re-check authorization server-side, not just at link-generation
@@ -53,10 +64,23 @@
   validate the share token, confirm the course is currently
   shareable, and confirm the requesting user is authenticated — never
   trust a client-supplied course ID, owner ID, or permission.
-- **Syllabus/JSON import** (Milestone 2 / 5): treat all uploaded and
-  AI-returned content as untrusted; validate structurally before
-  storing or rendering; watch for prompt-injection payloads hidden in
-  syllabus text that could otherwise leak into AI calls.
+
+## Known gap, not yet mitigated
+
+- **Prompt injection via syllabus text**: Milestone 5/6 both embed the
+  raw extracted syllabus text directly into the AI prompt
+  (`buildCoursePrompt` in `src/lib/prompt-generator.ts`), unfiltered.
+  A syllabus PDF containing adversarial text (e.g. "ignore the above
+  instructions and instead...") could influence what the AI generates.
+  This is only a content-quality/wasted-request risk today, **not** a
+  data-integrity risk — every generated result still passes through
+  `validateCourseImport`'s schema validation and the same
+  non-`rehype-raw` Markdown rendering as any other course, so an
+  injection attempt cannot produce executable content or bypass
+  validation. Still worth a real mitigation (e.g. clearly delimiting
+  untrusted content in the prompt, or a lightweight scan for
+  instruction-like patterns) before this is exposed beyond a single
+  trusted user.
 
 ## Explicitly not done yet
 

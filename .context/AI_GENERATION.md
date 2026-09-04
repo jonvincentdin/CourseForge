@@ -85,11 +85,116 @@ confirmed the resulting `course` row correctly carried
 test hadn't exercised that path). A tampered/nonexistent subject id in
 the page's query string correctly 404s rather than leaking any data.
 
-## Direct AI generation — Milestone 6 — not started
+## Direct AI generation — Milestone 6 — built, verified live against a real provider API
 
-Provider-agnostic AI architecture, AI configuration UI, encrypted
-API-key storage, generation with progress UI. See `SECURITY.md`'s
-"Required for future milestones" for the non-negotiable API-key
-handling rules that must be followed exactly when this is built —
-those requirements were written before this milestone and still
-stand unchanged.
+Per-user, provider-agnostic AI configuration and one-click course
+generation, with no synthetic testing shortcuts — this milestone's
+verification made real HTTP calls to `api.anthropic.com` (reachable
+from this build environment) with a deliberately invalid key, and got
+back a genuine `401` that the app correctly translated into a
+specific, non-leaking error message. `api.openai.com` was not
+reachable from this build environment, so the OpenAI provider is
+implemented to the same pattern but **not** live-verified against a
+real OpenAI response — see Known Limitations below.
+
+### Provider abstraction (`src/lib/ai/`)
+
+`types.ts` defines the entire contract a provider must implement:
+`testConnection(apiKey, model)` and `generateCompletion({apiKey, model,
+prompt})`. Two implementations exist (`providers/anthropic.ts`,
+`providers/openai.ts`), registered in `index.ts`'s `AI_PROVIDERS` map.
+Adding a third provider means writing one new file matching the
+`AIProvider` interface and adding one line to the registry — nothing
+else in the app (the settings UI, the generation route, the encryption
+layer) needs to change. That's the literal test of product brief
+§37's "addable later without rewriting the application," and it's true
+by construction, not just by intention.
+
+Both provider implementations are careful never to put the API key
+into any error message they return — errors come from HTTP status
+codes and the provider's own response body, never by echoing the
+request.
+
+### API key encryption (`src/lib/encryption.ts`)
+
+AES-256-GCM, `ENCRYPTION_KEY` env var stretched via `scryptSync` into
+a proper 32-byte key. Verified live: encrypted a real key, confirmed
+the round-trip decrypts to the exact original, and confirmed a
+single-byte tamper to the ciphertext is rejected (GCM auth tag
+verification) rather than silently decrypting to garbage. Verified in
+the actual running app, not just in isolation: saved a real (fake)
+key through the real `/api/ai-config` endpoint, confirmed the
+`encrypted_api_key` column in Postgres is genuinely unreadable
+ciphertext, confirmed the key never appears in the save response, the
+status response, or the rendered settings page HTML, and confirmed
+the "test my saved key" path correctly decrypts it server-side and
+uses it in a real outbound API call.
+
+This module is the **only** place a decrypted key exists outside a
+provider's own outbound `fetch` call. `getDecryptedConfigForUser` in
+`src/lib/ai-config-service.ts` is explicitly marked internal-only —
+nothing that returns data to the client may call it.
+
+### AI configuration (`/settings`, `src/components/settings/ai-config-form.tsx`)
+
+Matches product brief §37's mockup: Provider select, API Key input
+(type=password), Model (free-text — see `DECISIONS.md` for why this
+isn't a hardcoded dropdown), Test Connection, Save. Once configured,
+shows only `providerName`, `model`, and a fully-masked
+`••••••••••••••••` — never a partial reveal, matching §38's frontend
+display requirement exactly. Replace/Remove both work; Remove asks for
+confirmation and actually deletes the row (verified: `DELETE
+/api/ai-config` → row count in Postgres goes to 0).
+
+### Course generation (`POST /api/courses/generate`)
+
+Re-derives subject/syllabus ownership server-side (never trusts the
+client's ids alone — same pattern as every other milestone), builds
+the exact same prompt Milestone 5's external flow shows the user
+(`buildCoursePrompt`, unchanged), sends it to the configured provider,
+and feeds the raw response through the **exact same**
+`importCourseFromJson` pipeline Milestones 4 and 5 already built and
+verified — with `source: "generated"` instead of `"imported"` so the
+data honestly records how each course was created. No new validation
+logic was written for this milestone; only a new way to produce the
+JSON that gets fed into the existing one.
+
+A defensive Markdown-code-fence stripper was added to
+`course-service.ts`'s `importCourseFromJson` (used by every import
+path, not just this one) because real AI models commonly wrap JSON in
+` ```json ` fences despite being told not to — cheap to handle, common
+enough to be worth handling.
+
+### Progress UI
+
+`src/components/generate/direct-generate-panel.tsx` shows the
+brief's staged checklist (§79: "Reading syllabus" → ... → "Validating
+course"). **This is honestly a client-side simulated progression, not
+real per-stage signals from the server** — a single AI completion call
+happens in one request/response; there's no true mid-flight progress
+to report without building a streaming/SSE pipeline, which wasn't
+judged worth the complexity for a once-per-course action. Documented
+here so nobody mistakes the checklist for genuine server-reported
+stages later.
+
+### Known limitations (do not treat as bugs)
+
+- The OpenAI provider is implemented to match OpenAI's real
+  Chat Completions API shape but was **not** live-tested against a
+  real OpenAI response — `api.openai.com` wasn't reachable from the
+  sandbox this was built in. The Anthropic provider genuinely was
+  live-tested against a real (rejecting) API call. If you add real
+  OpenAI usage, verify it the same way before trusting it fully.
+- Model selection is free text, not a curated dropdown of known-valid
+  model ids — see `DECISIONS.md`.
+- No usage/cost tracking, no per-request timeout beyond whatever the
+  underlying `fetch` defaults to, no retry logic on transient provider
+  errors (a 429 surfaces immediately as a user-facing error rather
+  than auto-retrying).
+
+## Not yet built (owned by later milestones)
+
+- Interactive quiz-taking, scoring, module navigation, progress
+  tracking — Milestone 7
+- Regeneration, versioning, delete, search/filter on `/courses` —
+  Milestone 8

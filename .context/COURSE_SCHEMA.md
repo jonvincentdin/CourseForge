@@ -138,14 +138,13 @@ distinct forms, one per subject.
 
 ## Not yet built (owned by later milestones)
 
-- Prompt generation ("copy this prompt into any AI") and the
-  schema-download button — Milestone 5
-- Direct AI generation calling a configured provider — Milestone 6
-- Interactive quiz-taking, scoring, module navigation, progress
-  tracking — Milestone 7 (the current `/courses/[id]` page is a
-  read-only structural preview: collapsible modules, rendered
-  Markdown, a quiz *question count* badge — no actual quiz UI)
 - Regeneration, versioning, delete, search/filter on `/courses` —
   Milestone 8 (the current `/courses` list is intentionally minimal,
   matching the same pattern Milestone 2 used for `/syllabi` before
   Milestone 8 exists)
+
+Interactive quiz-taking, module navigation, and progress tracking are
+now built — see `.context/MILESTONES.md`'s Milestone 7 entry and
+`ARCHITECTURE.md`'s "Learning experience architecture" section for
+details, including how quiz answers are kept from the client until
+after submission.

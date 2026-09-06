@@ -120,19 +120,44 @@ this satisfies the brief without a more complex version-graph model.
 | model | text | free-text model id — see `DECISIONS.md` |
 | created_at / updated_at | timestamp | |
 
+### `module_progress` (Milestone 7)
+| Column | Type | Notes |
+|---|---|---|
+| id | uuid, PK | |
+| module_id | uuid, FK → `course_module.id`, cascade delete | |
+| user_id | uuid, FK → `user.id`, cascade delete | |
+| lesson_completed | boolean, default false | set by the explicit "Mark lesson complete" button — not inferred from scroll position, time spent, or any other implicit signal |
+| quiz_score / quiz_total | integer, nullable | both null until the quiz has been attempted at least once; a retake **overwrites** these (upsert on the unique constraint below), it does not append a new attempt row — see `DECISIONS.md` |
+| quiz_answers | jsonb, nullable | the most recent submission's raw answers, kept for potential future "review your answers" UI; not currently rendered anywhere |
+| quiz_completed_at | timestamp, nullable | |
+| updated_at | timestamp | |
+
+**Unique constraint on `(module_id, user_id)`** — deliberately keyed by
+user, not just module, even though only the course owner can access
+their own course today (no sharing/viewers until Milestone 9). This
+means Milestone 9's "viewer progress must be isolated from the
+owner's" requirement (product brief §64) needs no schema change later,
+only a new caller — each viewer's row is naturally separate by
+`user_id`. Verified live: a second real account's attempts to write
+progress against the first account's module were correctly rejected
+(`404`) before ever reaching this table, and zero rows were created
+for them.
+
 ## Relationships
 
-- `account.user_id` / `session.user_id` / `syllabus.user_id` / `course.owner_id` / `ai_provider_config.user_id` → `user.id`, cascade delete
+- `account.user_id` / `session.user_id` / `syllabus.user_id` / `course.owner_id` / `ai_provider_config.user_id` / `module_progress.user_id` → `user.id`, cascade delete
 - `subject.syllabus_id` → `syllabus.id`, cascade delete (verified: deleting a syllabus removes its subjects)
 - `course.subject_id` / `course.syllabus_id` → `subject.id` / `syllabus.id`, **`set null`** on delete — a course is a snapshot, not a live reference; deleting its source syllabus must never delete or orphan the course (see `DECISIONS.md`)
 - `course_module.course_id` → `course.id`, cascade delete
 - `quiz.module_id` → `course_module.id`, cascade delete, unique (one quiz per module)
 - `quiz_question.quiz_id` → `quiz.id`, cascade delete
+- `module_progress.module_id` → `course_module.id`, cascade delete (deleting a module/course cleans up its progress rows automatically)
 
 ## Indexes
 
 `user.email`, `quiz.module_id`, and `ai_provider_config.user_id` each
-have a unique constraint (and therefore an index). No other indexes
+have a unique constraint (and therefore an index). `module_progress`
+has a unique constraint on `(module_id, user_id)`. No other indexes
 yet — no query pattern has needed one at this scale. Revisit
 `subject.syllabus_id`, `syllabus.user_id`, and `course.owner_id` if
 listing pages get slow with real data volume.
@@ -141,14 +166,13 @@ listing pages get slow with real data volume.
 
 Original PDFs are stored via `src/lib/storage.ts` (local filesystem
 today; see `DECISIONS.md`), keyed by `syllabus.storage_key`, not
-inside Postgres itself. Course content (Markdown, quiz data) lives
-entirely in Postgres — no separate file storage needed for it.
-Encrypted API keys also live entirely in Postgres — no external
-secrets manager yet (see `DECISIONS.md`).
+inside Postgres itself. Course content (Markdown, quiz data) and
+progress data both live entirely in Postgres — no separate file
+storage needed for either. Encrypted API keys also live entirely in
+Postgres — no external secrets manager yet (see `DECISIONS.md`).
 
 ## Not yet modeled (owned by later milestones — do not invent these tables early)
 
-- CourseProgress (Milestone 7)
 - CourseShare / CoursePermission / CourseInvitation (Milestone 9)
 
 ## Known gaps

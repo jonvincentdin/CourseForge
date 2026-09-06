@@ -4,6 +4,7 @@ import { desc, eq } from "drizzle-orm";
 import { auth } from "@/lib/auth";
 import { db } from "@/db";
 import { courses } from "@/db/schema";
+import { getCourseProgressSummaries } from "@/lib/progress-service";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { buttonVariants } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -20,6 +21,8 @@ export default async function CoursesPage() {
     .from(courses)
     .where(eq(courses.ownerId, session!.user.id))
     .orderBy(desc(courses.createdAt));
+
+  const progress = await getCourseProgressSummaries(session!.user.id);
 
   return (
     <div>
@@ -56,31 +59,52 @@ export default async function CoursesPage() {
         </Card>
       ) : (
         <div className="mt-8 grid gap-4 sm:grid-cols-2">
-          {rows.map((course) => (
-            <Card key={course.id}>
-              <CardHeader>
-                <div className="flex items-start justify-between gap-2">
-                  <CardTitle>{course.title}</CardTitle>
-                  {course.subjectCode && (
-                    <Badge tone="neutral">{course.subjectCode}</Badge>
+          {rows.map((course) => {
+            const summary = progress[course.id];
+            const percent =
+              summary && summary.totalModules > 0
+                ? Math.round((summary.completedModules / summary.totalModules) * 100)
+                : 0;
+
+            return (
+              <Card key={course.id}>
+                <CardHeader>
+                  <div className="flex items-start justify-between gap-2">
+                    <CardTitle>{course.title}</CardTitle>
+                    {course.subjectCode && (
+                      <Badge tone="neutral">{course.subjectCode}</Badge>
+                    )}
+                  </div>
+                  <CardDescription>
+                    {summary ? `${summary.totalModules} Modules` : "No modules"}
+                    {course.academicYear && ` · Year ${course.academicYear}`}
+                    {course.semester && ` · ${course.semester}`}
+                  </CardDescription>
+                </CardHeader>
+                <CardContent>
+                  {summary && summary.totalModules > 0 && (
+                    <div className="mb-3">
+                      <div className="h-1.5 overflow-hidden rounded-full bg-paper">
+                        <div
+                          className="h-full rounded-full bg-forge-green"
+                          style={{ width: `${percent}%` }}
+                        />
+                      </div>
+                      <p className="mt-1 text-xs text-steel-soft">
+                        {percent === 0 ? "Not started" : `${percent}% Complete`}
+                      </p>
+                    </div>
                   )}
-                </div>
-                <CardDescription>
-                  {course.academicYear && `Year ${course.academicYear}`}
-                  {course.academicYear && course.semester && " · "}
-                  {course.semester}
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                <Link
-                  href={`/courses/${course.id}`}
-                  className={buttonVariants({ variant: "secondary", size: "sm" })}
-                >
-                  Open
-                </Link>
-              </CardContent>
-            </Card>
-          ))}
+                  <Link
+                    href={`/courses/${course.id}`}
+                    className={buttonVariants({ variant: "secondary", size: "sm" })}
+                  >
+                    Open
+                  </Link>
+                </CardContent>
+              </Card>
+            );
+          })}
         </div>
       )}
     </div>

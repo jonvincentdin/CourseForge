@@ -201,6 +201,27 @@ knowledge that may already be stale by the time it's written.
 
 ---
 
+**Decision:** A module counts as "done" when its lesson is marked
+complete **and** its quiz has been attempted at least once —
+regardless of score. Quiz retakes overwrite the stored score rather
+than appending an attempt history.
+
+**Reason:** The product brief never specifies a passing threshold for
+"Complete" status, and inventing one (e.g. "70% to pass") would be a
+real, opinionated product decision the brief didn't ask for. Requiring
+*attempt* rather than *mastery* keeps completion meaningful (you can't
+be "done" with a module you never engaged with) without silently
+gatekeeping progress behind an arbitrary score. Attempt history was
+considered and left out for the same reason as several earlier
+simplifications in this project: nothing in the brief asks "show me
+every time I took this quiz," and the schema (`quiz_answers` jsonb,
+singular, not an array of past attempts) can be extended later if that
+need becomes real, without touching anything else.
+
+**Date:** 2026-09-06
+
+---
+
 ## Open questions (not yet decided — flag before Milestone 2 starts)
 
 - **AI provider abstraction shape** (Milestone 6): what the common

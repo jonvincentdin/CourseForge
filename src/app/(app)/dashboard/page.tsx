@@ -3,7 +3,8 @@ import Link from "next/link";
 import { desc, eq } from "drizzle-orm";
 import { auth } from "@/lib/auth";
 import { db } from "@/db";
-import { syllabi } from "@/db/schema";
+import { syllabi, courses } from "@/db/schema";
+import { getCourseProgressSummaries } from "@/lib/progress-service";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { buttonVariants } from "@/components/ui/button";
 import { SyllabusStatusBadge } from "@/components/syllabi/syllabus-status-badge";
@@ -26,6 +27,15 @@ export default async function DashboardPage() {
     .where(eq(syllabi.userId, session!.user.id))
     .orderBy(desc(syllabi.createdAt))
     .limit(3);
+
+  const recentCourses = await db
+    .select({ id: courses.id, title: courses.title })
+    .from(courses)
+    .where(eq(courses.ownerId, session!.user.id))
+    .orderBy(desc(courses.createdAt))
+    .limit(3);
+
+  const progress = await getCourseProgressSummaries(session!.user.id);
 
   return (
     <div className="space-y-8">
@@ -84,23 +94,66 @@ export default async function DashboardPage() {
         </Card>
       )}
 
-      <Card>
-        <CardHeader>
-          <CardTitle>No courses yet</CardTitle>
-          <CardDescription>
-            Once you have a syllabus, choose a subject and generate your
-            first learning course.
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <Link
-            href="/generate"
-            className={buttonVariants({ variant: "secondary", size: "sm" })}
-          >
-            Generate a course
-          </Link>
-        </CardContent>
-      </Card>
+      {recentCourses.length === 0 ? (
+        <Card>
+          <CardHeader>
+            <CardTitle>No courses yet</CardTitle>
+            <CardDescription>
+              Once you have a syllabus, choose a subject and generate your
+              first learning course.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <Link
+              href="/generate"
+              className={buttonVariants({ variant: "secondary", size: "sm" })}
+            >
+              Generate a course
+            </Link>
+          </CardContent>
+        </Card>
+      ) : (
+        <Card>
+          <CardHeader>
+            <div className="flex items-center justify-between">
+              <CardTitle>Recently generated</CardTitle>
+              <Link href="/courses" className="text-sm text-ink-soft hover:text-ink">
+                View all
+              </Link>
+            </div>
+          </CardHeader>
+          <CardContent>
+            <ul className="space-y-3">
+              {recentCourses.map((c) => {
+                const summary = progress[c.id];
+                const percent =
+                  summary && summary.totalModules > 0
+                    ? Math.round((summary.completedModules / summary.totalModules) * 100)
+                    : 0;
+                return (
+                  <li key={c.id}>
+                    <div className="flex items-center justify-between text-sm">
+                      <Link
+                        href={`/courses/${c.id}`}
+                        className="font-medium text-ink hover:text-ember"
+                      >
+                        {c.title}
+                      </Link>
+                      <span className="text-steel-soft">{percent}%</span>
+                    </div>
+                    <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-paper">
+                      <div
+                        className="h-full rounded-full bg-forge-green"
+                        style={{ width: `${percent}%` }}
+                      />
+                    </div>
+                  </li>
+                );
+              })}
+            </ul>
+          </CardContent>
+        </Card>
+      )}
     </div>
   );
 }

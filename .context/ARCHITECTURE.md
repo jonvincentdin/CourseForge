@@ -53,8 +53,8 @@ see `DECISIONS.md`.
 | `/generate` | Authenticated | Built — chooser/redirect across ready syllabi |
 | `/generate/[id]` | Authenticated, ownership-checked, `ready`-only | Built — year/semester/subject selection |
 | `/generate/[id]/prompt` | Authenticated, ownership-checked | Built — generation settings, per-subject AI prompt + copy + JSON import |
-| `/courses` | Authenticated | Built — minimal list (full management is Milestone 8) |
-| `/courses/[id]` | Authenticated, ownership-checked | Built — read-only structural preview (interactive learning is Milestone 7) |
+| `/courses` | Authenticated | Built — minimal list with real progress percentages (full search/filter/delete is Milestone 8) |
+| `/courses/[id]` | Authenticated, ownership-checked | Built — real learning experience: module nav, progress bar, interactive quizzes with server-side grading |
 | `/settings` | Authenticated | Built — AI provider configuration |
 | `/share/[token]` | Public, server-authorized | Not built (Milestone 9) |
 
@@ -111,7 +111,30 @@ provider, and feeds the raw response through the same
 live-verified (Anthropic: yes, against a real API call; OpenAI: code
 matches the real API shape but wasn't network-reachable to verify).
 
-## Course architecture (Milestone 4, extended in Milestones 5–6)
+## Learning experience architecture (Milestone 7)
+
+The server→client boundary is the load-bearing design decision here:
+`src/lib/quiz-client-types.ts`'s `sanitizeQuestionForClient` strips
+`correctAnswer` and `explanation` before any question data reaches a
+client component — verified live by grepping the actual rendered page
+HTML for both, finding zero occurrences. The real values only travel
+back to the client inside a grading *response*, per-question, after
+the user has already submitted an answer for that question.
+`src/lib/quiz-grading.ts` is the only place grading logic exists — it
+runs exclusively server-side inside
+`POST /api/courses/[id]/modules/[moduleId]/quiz-attempt`, which
+ignores any client-supplied score entirely and always re-derives it
+from the real `quiz_question` rows (verified live by submitting a
+forged score and confirming the server discarded it and re-graded from
+scratch). `src/lib/progress-service.ts` owns all progress reads/writes
+and re-verifies module→course ownership on every call
+(`assertOwnedModule`) before touching `module_progress` — the same
+ownership-re-derivation pattern used everywhere else in the app.
+`CourseViewer` (client) holds the active-module and progress state;
+`ModuleQuiz` (client) is a controlled, per-question-type input UI that
+POSTs answers and renders the graded response.
+
+## Course architecture (Milestone 4, extended in Milestones 5–7)
 
 `src/lib/course-schema.ts` defines the versioned JSON schema (zod) and
 is the single source of truth every generation path (Milestone 4's
@@ -173,8 +196,9 @@ src/
         [id]/prompt/page.tsx      generation settings, per-subject
                                    prompt + copy + JSON import
       courses/
-        page.tsx                  minimal list
-        [id]/page.tsx             read-only structural preview
+        page.tsx                  minimal list, real progress %
+        [id]/page.tsx             real course viewer (module nav,
+                                   progress, interactive quizzes)
       settings/
         page.tsx                  AI provider configuration
     api/
@@ -190,6 +214,8 @@ src/
       courses/[id]/export/route.ts                       GET
       courses/schema/route.ts                            GET (public)
       courses/generate/route.ts                          POST
+      courses/[id]/modules/[moduleId]/complete-lesson/route.ts   POST
+      courses/[id]/modules/[moduleId]/quiz-attempt/route.ts      POST
       ai-config/route.ts                                 GET, POST, DELETE
       ai-config/test/route.ts                            POST
   components/
@@ -203,7 +229,8 @@ src/
     generate/                     subject-selector, course-prompt-generator
                                    (settings), subject-prompt-panel,
                                    import-course-form, direct-generate-panel
-    courses/                      markdown-content (sanitized renderer)
+    courses/                      markdown-content (sanitized renderer),
+                                   course-viewer, module-quiz
     settings/                     ai-config-form
   db/
     schema.ts                     user/account/session/verification_token,
@@ -233,6 +260,13 @@ src/
       index.ts                    provider registry
       providers/anthropic.ts
       providers/openai.ts
+    quiz-grading.ts                server-side-only grading for all 4
+                                    question types
+    progress-service.ts            lesson/quiz progress reads+writes,
+                                    ownership re-verified on every call
+    quiz-client-types.ts           strips correctAnswer/explanation
+                                    before any question data reaches
+                                    the client
   types/
     next-auth.d.ts                session.user.id augmentation
 drizzle.config.ts

@@ -52,6 +52,22 @@
   in error messages (verified live — a real Anthropic `401` error was
   surfaced to the user with a clear message and zero trace of the key
   that caused it), no decrypted key returned by any API response.
+- **Quiz answer integrity** (Milestone 7): `correctAnswer` and
+  `explanation` are stripped server-side before any question data
+  reaches a client component (`sanitizeQuestionForClient` in
+  `src/lib/quiz-client-types.ts`) — verified live by grepping the
+  actual rendered course page HTML for every seeded explanation string
+  and for the literal key `"correctAnswer"`; found zero occurrences.
+  Grading happens exclusively server-side (`src/lib/quiz-grading.ts`,
+  called only from the quiz-attempt route) and never trusts a
+  client-supplied score — verified live by submitting a forged
+  `{"score": 4, "total": 4}` alongside empty answers and confirming
+  the server discarded both fields and correctly returned `0/4` from
+  re-grading the real (empty) submission. Progress writes
+  (lesson-complete, quiz-attempt) re-verify module→course ownership on
+  every call before touching the database — verified live that a
+  second real account gets `404` attempting either write against
+  another user's module, with zero rows created for them.
 
 ## Required for future milestones (do not build these features without this)
 

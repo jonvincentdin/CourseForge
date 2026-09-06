@@ -2,9 +2,10 @@ import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import Link from "next/link";
 import { getOwnedCourse } from "@/lib/course-service";
+import { getProgressForCourse } from "@/lib/progress-service";
 import { auth } from "@/lib/auth";
-import { MarkdownContent } from "@/components/courses/markdown-content";
-import { Badge } from "@/components/ui/badge";
+import { sanitizeQuestionForClient } from "@/lib/quiz-client-types";
+import { CourseViewer, type ViewerModule, type ViewerProgress } from "@/components/courses/course-viewer";
 
 export const metadata: Metadata = {
   title: "Course — CourseForge",
@@ -22,9 +23,34 @@ export default async function CourseDetailPage({
   if (!full) notFound();
 
   const { course, modules } = full;
+  const progressRows = await getProgressForCourse(id, session!.user.id);
+
+  const viewerModules: ViewerModule[] = modules.map((mod) => ({
+    id: mod.id,
+    title: mod.title,
+    description: mod.description,
+    contentMarkdown: mod.contentMarkdown,
+    quizTitle: mod.quiz.title,
+    // Never send correctAnswer/explanation to the client before a quiz is submitted.
+    questions: mod.quiz.questions.map(sanitizeQuestionForClient),
+  }));
+
+  const initialProgress: Record<string, ViewerProgress> = Object.fromEntries(
+    modules.map((mod) => {
+      const row = progressRows[mod.id];
+      return [
+        mod.id,
+        {
+          lessonCompleted: row?.lessonCompleted ?? false,
+          quizScore: row?.quizScore ?? null,
+          quizTotal: row?.quizTotal ?? null,
+        },
+      ];
+    })
+  );
 
   return (
-    <div className="mx-auto max-w-3xl">
+    <div className="mx-auto max-w-4xl">
       <Link href="/courses" className="text-sm text-steel-soft hover:text-ink">
         ← My Courses
       </Link>
@@ -66,36 +92,13 @@ export default async function CourseDetailPage({
         </div>
       )}
 
-      <div className="mt-8 space-y-3">
-        {modules.map((mod, index) => (
-          <details
-            key={mod.id}
-            open={index === 0}
-            className="group rounded-lg border border-line bg-paper-raised"
-          >
-            <summary className="flex cursor-pointer items-center justify-between gap-3 px-4 py-3 [&::-webkit-details-marker]:hidden">
-              <span className="text-sm font-medium text-ink">
-                {index + 1}. {mod.title}
-              </span>
-              <Badge tone="neutral">
-                {mod.quiz.questions.length} quiz question
-                {mod.quiz.questions.length === 1 ? "" : "s"}
-              </Badge>
-            </summary>
-            <div className="border-t border-line px-4 py-4">
-              {mod.description && (
-                <p className="text-sm text-ink-soft">{mod.description}</p>
-              )}
-              <MarkdownContent content={mod.contentMarkdown} />
-            </div>
-          </details>
-        ))}
+      <div className="mt-8">
+        <CourseViewer
+          courseId={course.id}
+          modules={viewerModules}
+          initialProgress={initialProgress}
+        />
       </div>
-
-      <p className="mt-8 border-t border-line pt-4 text-xs text-steel-soft">
-        This is a structural preview — module navigation, progress
-        tracking, and interactive quizzes are Milestone 7.
-      </p>
     </div>
   );
 }

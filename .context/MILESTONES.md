@@ -335,10 +335,83 @@ generated output still passes through full schema validation.
 
 ---
 
-## Milestone 7 — Learning Experience — `[ ]` Not started
+## Milestone 7 — Learning Experience — `[✓]` Complete
 
-Course viewer, module navigation, Markdown renderer (sanitized),
-progress tracking, module quizzes with explanations.
+- [x] Course viewer — `/courses/[id]` is now a real learning
+      interface, not a structural preview: module sidebar, progress
+      bar, active-module lesson panel, quiz panel
+- [x] Module navigation — sidebar list with status icons (✓/→/○),
+      click to switch; the viewer auto-selects the first incomplete
+      module on load rather than always defaulting to module 1
+- [x] Markdown renderer (sanitized) — unchanged from Milestone 4,
+      reused as-is
+- [x] Progress tracking — `module_progress` table (Milestone 7's only
+      new table), a module counts as done when its lesson is marked
+      complete **and** its quiz has been attempted at least once;
+      course-level percentage is `completed / total` modules,
+      genuinely computed from real rows, not estimated
+- [x] Module quizzes — all 4 question types (multiple choice, multiple
+      select, true/false, identification) have real input UIs and are
+      graded server-side
+- [x] Quiz explanations — shown per-question after submission, never
+      before
+- [x] Completion tracking — "Mark lesson complete" button,
+      `lessonCompleted` boolean persisted per module/user
+
+**The single most important thing this milestone had to get right —
+and the thing most rigorously verified — is that a user cannot see
+quiz answers before submitting, and cannot fake a score.** Both were
+checked directly, not assumed:
+
+- Fetched the actual rendered course page HTML and grepped for every
+  question's explanation text and for the literal string
+  `"correctAnswer"` — **zero** occurrences. The data sent to the
+  client before submission (`ClientQuizQuestion` in
+  `src/lib/quiz-client-types.ts`) genuinely excludes both fields; this
+  isn't a client-side hide, it's server-side omission
+- Submitted a request with a forged `{"score": 4, "total": 4}`
+  alongside empty answers — the server ignored both fields entirely,
+  re-graded from the actual submitted answers against the real
+  `quiz_question` rows, and correctly returned `0/4`
+
+**Also verified live, real Postgres, real HTTP requests:**
+
+- Imported a real 2-module, 5-question course (all 4 question types
+  represented) and confirmed correct grading on both a mixed-correct
+  submission and an all-correct retake — including a case-insensitive,
+  whitespace-trimmed identification match (`"  INDEXING  "` correctly
+  matched `"indexing"`) and an order-independent multiple-select match
+- Confirmed retaking a quiz **updates** the existing `module_progress`
+  row (upsert) rather than creating a duplicate — checked via a direct
+  row-count query before and after
+- Marked a lesson complete, confirmed the DB row, and confirmed the
+  course's progress percentage on `/courses`, the dashboard, and the
+  course detail page all agreed (50% for 1-of-2 modules done) —
+  computed from three different queries, not copy-pasted from one
+- Confirmed the viewer correctly auto-advances to the next incomplete
+  module once the current one is marked done, rather than always
+  reopening module 1
+- Cross-user isolation extended to the two new write endpoints: a
+  second real account attempting to submit a quiz or mark a lesson
+  complete against the first account's module correctly gets `404`
+  ("Module not found" — not a permissions-specific message that would
+  confirm the module *exists*), and zero rows were created for them
+
+**Explicitly out of scope / known limitations** (do not treat as
+bugs): no pass/fail threshold — a module counts as "done" once its
+quiz has been attempted at all, regardless of score, since the brief
+never specifies a passing threshold. No quiz attempt history — only
+the most recent attempt's score is kept (`quizAnswers` is overwritten,
+not appended to a log); revisit if "show me how I did each time"
+becomes a real requirement. No time-based estimates or lesson
+scroll-tracking — "complete" is purely the explicit button click. The
+Milestone 8 concerns (regeneration, versioning, delete, search on
+`/courses`) remain untouched by this milestone, as do all of
+Milestone 9's sharing/viewer-isolation work (this milestone's
+`user_id`-keyed progress table is *designed* to support that later
+without a schema change, but nothing sharing-related is built yet).
+
+---
 
 ## Milestone 8 — Course Management — `[ ]` Not started
 
@@ -368,13 +441,15 @@ database audit, edge cases, real test coverage, deployment prep.
 
 ## Recommended immediate next step
 
-Milestone 7 (Learning Experience) is next: turn `/courses/[id]`'s
-read-only structural preview into a real course viewer — module
-navigation (previous/next, a sidebar/progress list), the interactive
-quiz UI (all 4 question types already have their data shape defined in
-`course-schema.ts`, they just need a UI: submit → score → correct/
-incorrect per question → explanation), and `CourseProgress` tracking
-(the one remaining "not yet modeled" table from `DATABASE.md`). The
-Markdown renderer, quiz question data, and course structure all
-already exist and are verified — this milestone is UI and one new
-small table, not new data-model work.
+Milestone 8 (Course Management) is next: turn `/courses` from a
+minimal list into real management — search/filter, delete (cascades
+already work correctly at the DB level, just needs a UI + confirm
+dialog matching the Milestone 2 `DeleteSyllabusButton` pattern),
+regeneration (re-run Milestone 5/6 generation against the same
+subject, producing a new course rather than overwriting — "Do not
+automatically destroy the old version" per product brief §42), and
+richer source metadata display (the `course.source` field —
+`imported`/`generated`/`shared_copy` — already exists and is set
+correctly; it just isn't shown anywhere in the UI yet). No new tables
+should be needed — this is UI and query work on top of data that
+already exists and is already correct.

@@ -38,15 +38,15 @@ assumption of a specific institution's syllabus format.
 
 ## Current implementation
 
-Milestones 1–6: accounts, sign in/out, protected dashboard shell,
+Milestones 1–7: accounts, sign in/out, protected dashboard shell,
 design system, syllabus upload/extraction/review/management, the
 year/semester/subject selection flow, the course data model (schema,
-Markdown rendering, JSON import/export), the external AI workflow
-(syllabus-grounded prompt generation, JSON Schema download, prompt
-copying), and direct AI generation with encrypted per-user API keys —
-verified against a real provider API, not a mock. Both generation
-paths (external prompt-and-paste, and direct) are fully working. See
-`MILESTONES.md`.
+Markdown rendering, JSON import/export), both generation paths
+(external prompt-and-paste, and direct AI generation with encrypted
+per-user API keys), and now a real interactive learning experience —
+module navigation, progress tracking, and server-graded quizzes across
+all 4 question types, with quiz answers kept from the client until
+after submission. See `MILESTONES.md`.
 
 ## Important constraints
 

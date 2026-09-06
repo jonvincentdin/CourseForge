@@ -57,19 +57,18 @@ silently re-litigated.
 
 ## Current project status
 
-**Milestones 1 through 6 are complete and verified live** — not just
+**Milestones 1 through 7 are complete and verified live** — not just
 build-clean, but exercised against a real running Postgres database,
-real HTTP requests throughout, and — for Milestone 6 specifically — a
-real call to Anthropic's live API with a deliberately invalid key,
-confirming the entire error-handling and encryption pipeline works
-against a genuine external failure, not a simulated one. Cross-user
-data isolation is verified on every ownership-checked route, including
-AI configuration and generation. CourseForge now supports both
-generation paths end-to-end: copy a grounded prompt into any AI and
-paste the JSON back, or connect your own provider and generate
-directly. See `MILESTONES.md` for the precise completion checklist and
-what's explicitly out of scope so far.
+real HTTP requests throughout, a real call to Anthropic's live API for
+Milestone 6, and for Milestone 7, direct verification (by inspecting
+actual rendered HTML and by submitting a forged score) that quiz
+answers can't be read early and can't be faked. Cross-user data
+isolation is verified on every ownership-checked route, now including
+progress-tracking writes. CourseForge supports the full loop: upload a
+syllabus, select subjects, generate a course either path, then
+actually learn from it with real progress and graded quizzes. See
+`MILESTONES.md` for the precise completion checklist and what's
+explicitly out of scope so far.
 
-No interactive quiz-taking, progress tracking, or sharing exists yet.
-`/courses/[id]` is a deliberately read-only structural preview —
-that's Milestones 7 through 9.
+Course management (search, delete, regeneration on `/courses`) and
+sharing are not built yet — that's Milestones 8 and 9.

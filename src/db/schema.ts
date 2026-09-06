@@ -8,6 +8,7 @@ import {
   pgEnum,
   boolean,
   jsonb,
+  unique,
 } from "drizzle-orm/pg-core";
 import type { AdapterAccountType } from "@auth/core/adapters";
 
@@ -15,11 +16,12 @@ import type { AdapterAccountType } from "@auth/core/adapters";
  * Milestone 1 scope: authentication + user foundation.
  * Milestone 2 scope: syllabus + subject storage.
  * Milestone 4 scope: course/module/quiz storage.
- * Milestone 6 scope: per-user AI provider configuration (added below).
- * Progress and Sharing tables are introduced in their respective
- * milestones (see .context/DATABASE.md and .context/MILESTONES.md) —
- * they are intentionally NOT stubbed here so the schema never implies
- * functionality that doesn't exist yet.
+ * Milestone 6 scope: per-user AI provider configuration.
+ * Milestone 7 scope: per-module progress/quiz-attempt tracking (added
+ * below). Sharing tables are introduced in Milestone 9 (see
+ * .context/DATABASE.md and .context/MILESTONES.md) — intentionally
+ * NOT stubbed here so the schema never implies functionality that
+ * doesn't exist yet.
  */
 
 export const users = pgTable("user", {
@@ -282,3 +284,39 @@ export const aiProviderConfigs = pgTable("ai_provider_config", {
 
 export type AIProviderConfig = typeof aiProviderConfigs.$inferSelect;
 export type NewAIProviderConfig = typeof aiProviderConfigs.$inferInsert;
+
+// ---------------------------------------------------------------------------
+// Milestone 7 — Learning Experience
+// ---------------------------------------------------------------------------
+
+/**
+ * Keyed by (module_id, user_id) rather than just module_id, even
+ * though only the course owner can access their own course today —
+ * no sharing/viewers exist until Milestone 9. This shape means
+ * Milestone 9's "viewer progress must be isolated from the owner's"
+ * requirement (product brief §64) needs no schema change later, only
+ * a new caller: each viewer's row is naturally separate by user_id.
+ */
+export const moduleProgress = pgTable(
+  "module_progress",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    moduleId: uuid("module_id")
+      .notNull()
+      .references(() => courseModules.id, { onDelete: "cascade" }),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    lessonCompleted: boolean("lesson_completed").notNull().default(false),
+    // Null until the quiz has been attempted at least once.
+    quizScore: integer("quiz_score"),
+    quizTotal: integer("quiz_total"),
+    quizAnswers: jsonb("quiz_answers").$type<Record<string, unknown>>(),
+    quizCompletedAt: timestamp("quiz_completed_at"),
+    updatedAt: timestamp("updated_at").defaultNow().notNull(),
+  },
+  (table) => [unique().on(table.moduleId, table.userId)]
+);
+
+export type ModuleProgress = typeof moduleProgress.$inferSelect;
+export type NewModuleProgress = typeof moduleProgress.$inferInsert;

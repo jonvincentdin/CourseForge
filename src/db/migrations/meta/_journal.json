@@ -29,6 +29,13 @@
       "when": 1788684937775,
       "tag": "0003_modern_storm",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1792766099166,
+      "tag": "0004_modern_colossus",
+      "breakpoints": true
     }
   ]
 }

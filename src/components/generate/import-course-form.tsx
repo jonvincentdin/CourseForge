@@ -11,6 +11,7 @@ export function ImportCourseForm({
   subjectLabel,
   exampleJson,
   hideHeader = false,
+  regenerateFromCourseId,
 }: {
   subjectId: string;
   syllabusId: string;
@@ -18,11 +19,14 @@ export function ImportCourseForm({
   exampleJson: string;
   /** When true, renders without its own Card/header — used when a parent (e.g. SubjectPromptPanel) already provides that chrome. */
   hideHeader?: boolean;
+  /** Milestone 8: when set, the imported course becomes the next version of this course. The server re-derives subject/syllabus from it. */
+  regenerateFromCourseId?: string;
 }) {
   const [json, setJson] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errors, setErrors] = useState<string[]>([]);
   const [createdCourseId, setCreatedCourseId] = useState<string | null>(null);
+  const [createdVersion, setCreatedVersion] = useState<number | null>(null);
 
   async function handleSubmit() {
     setErrors([]);
@@ -31,7 +35,12 @@ export function ImportCourseForm({
     const response = await fetch("/api/courses/import", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ json, subjectId, syllabusId }),
+      body: JSON.stringify({
+        json,
+        subjectId,
+        syllabusId,
+        ...(regenerateFromCourseId ? { regenerateFromCourseId } : {}),
+      }),
     });
 
     const body = await response.json().catch(() => null);
@@ -43,18 +52,23 @@ export function ImportCourseForm({
     }
 
     setCreatedCourseId(body.course.id);
+    setCreatedVersion(typeof body.course.version === "number" ? body.course.version : null);
   }
 
   const successContent = (
-    <>
-      <p className="text-sm text-forge-green">Course created.</p>
+    <div role="status">
+      <p className="text-sm text-forge-green">
+        {regenerateFromCourseId && createdVersion
+          ? `Version ${createdVersion} ready.`
+          : "Course created."}
+      </p>
       <Link
         href={`/courses/${createdCourseId}`}
         className="mt-1 inline-block text-sm font-medium text-ink hover:text-ember"
       >
-        Open the course →
+        {regenerateFromCourseId ? "Start learning →" : "Open the course →"}
       </Link>
-    </>
+    </div>
   );
 
   const formContent = (
@@ -63,12 +77,16 @@ export function ImportCourseForm({
         value={json}
         onChange={(e) => setJson(e.target.value)}
         rows={10}
+        aria-label="Course JSON"
         placeholder="Paste course JSON here…"
         className="w-full rounded-md border border-line-strong bg-paper-raised px-3 py-2 font-mono text-xs text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ember"
       />
 
       {errors.length > 0 && (
-        <ul className="mt-3 space-y-1 rounded-md border border-danger-soft bg-danger-soft/40 px-4 py-3">
+        <ul
+          role="alert"
+          className="mt-3 space-y-1 rounded-md border border-danger-soft bg-danger-soft/40 px-4 py-3"
+        >
           {errors.map((error) => (
             <li key={error} className="text-sm text-danger">
               {error}

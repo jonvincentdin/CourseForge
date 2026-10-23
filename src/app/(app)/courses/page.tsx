@@ -1,13 +1,10 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { desc, eq } from "drizzle-orm";
 import { auth } from "@/lib/auth";
-import { db } from "@/db";
-import { courses } from "@/db/schema";
-import { getCourseProgressSummaries } from "@/lib/progress-service";
+import { listCourseLibrary } from "@/lib/course-service";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { buttonVariants } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
+import { CourseLibrary } from "@/components/courses/course-library";
 
 export const metadata: Metadata = {
   title: "My Courses — CourseForge",
@@ -15,18 +12,11 @@ export const metadata: Metadata = {
 
 export default async function CoursesPage() {
   const session = await auth();
-
-  const rows = await db
-    .select()
-    .from(courses)
-    .where(eq(courses.ownerId, session!.user.id))
-    .orderBy(desc(courses.createdAt));
-
-  const progress = await getCourseProgressSummaries(session!.user.id);
+  const library = await listCourseLibrary(session!.user.id);
 
   return (
     <div>
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-end justify-between gap-4">
         <div>
           <h1 className="font-display text-2xl font-medium text-ink">
             My Courses
@@ -40,7 +30,7 @@ export default async function CoursesPage() {
         </Link>
       </div>
 
-      {rows.length === 0 ? (
+      {library.length === 0 ? (
         <Card className="mt-8">
           <CardHeader>
             <CardTitle>No courses yet</CardTitle>
@@ -58,54 +48,7 @@ export default async function CoursesPage() {
           </CardContent>
         </Card>
       ) : (
-        <div className="mt-8 grid gap-4 sm:grid-cols-2">
-          {rows.map((course) => {
-            const summary = progress[course.id];
-            const percent =
-              summary && summary.totalModules > 0
-                ? Math.round((summary.completedModules / summary.totalModules) * 100)
-                : 0;
-
-            return (
-              <Card key={course.id}>
-                <CardHeader>
-                  <div className="flex items-start justify-between gap-2">
-                    <CardTitle>{course.title}</CardTitle>
-                    {course.subjectCode && (
-                      <Badge tone="neutral">{course.subjectCode}</Badge>
-                    )}
-                  </div>
-                  <CardDescription>
-                    {summary ? `${summary.totalModules} Modules` : "No modules"}
-                    {course.academicYear && ` · Year ${course.academicYear}`}
-                    {course.semester && ` · ${course.semester}`}
-                  </CardDescription>
-                </CardHeader>
-                <CardContent>
-                  {summary && summary.totalModules > 0 && (
-                    <div className="mb-3">
-                      <div className="h-1.5 overflow-hidden rounded-full bg-paper">
-                        <div
-                          className="h-full rounded-full bg-forge-green"
-                          style={{ width: `${percent}%` }}
-                        />
-                      </div>
-                      <p className="mt-1 text-xs text-steel-soft">
-                        {percent === 0 ? "Not started" : `${percent}% Complete`}
-                      </p>
-                    </div>
-                  )}
-                  <Link
-                    href={`/courses/${course.id}`}
-                    className={buttonVariants({ variant: "secondary", size: "sm" })}
-                  >
-                    Open
-                  </Link>
-                </CardContent>
-              </Card>
-            );
-          })}
-        </div>
+        <CourseLibrary courses={library} />
       )}
     </div>
   );

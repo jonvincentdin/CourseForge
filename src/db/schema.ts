@@ -9,6 +9,7 @@ import {
   boolean,
   jsonb,
   unique,
+  index,
 } from "drizzle-orm/pg-core";
 import type { AdapterAccountType } from "@auth/core/adapters";
 
@@ -18,7 +19,8 @@ import type { AdapterAccountType } from "@auth/core/adapters";
  * Milestone 4 scope: course/module/quiz storage.
  * Milestone 6 scope: per-user AI provider configuration.
  * Milestone 7 scope: per-module progress/quiz-attempt tracking (added
- * below). Sharing tables are introduced in Milestone 9 (see
+ * below).
+ * Milestone 8 scope: course versioning columns on `course`. Sharing tables are introduced in Milestone 9 (see
  * .context/DATABASE.md and .context/MILESTONES.md) — intentionally
  * NOT stubbed here so the schema never implies functionality that
  * doesn't exist yet.
@@ -175,29 +177,51 @@ export const quizQuestionType = pgEnum("quiz_question_type", [
  * and are nullable with onDelete "set null": deleting the syllabus a
  * course was generated from must never delete or orphan the course
  * itself (see .context/DECISIONS.md).
+ *
+ * Versioning (Milestone 8): regeneration never modifies or deletes an
+ * existing course — it inserts a brand-new course row that shares the
+ * old one's `versionGroupId`, with `version = max(version in group) + 1`
+ * (computed inside the insert transaction; see course-service.ts). The
+ * first version's group id is its own `id`. `versionGroupId` is
+ * deliberately NOT a foreign key: the root version may be deleted and
+ * every other version in the group must survive that, so there is no
+ * row it could safely point at.
  */
-export const courses = pgTable("course", {
-  id: uuid("id").primaryKey().defaultRandom(),
-  ownerId: uuid("owner_id")
-    .notNull()
-    .references(() => users.id, { onDelete: "cascade" }),
-  subjectId: uuid("subject_id").references(() => subjects.id, {
-    onDelete: "set null",
-  }),
-  syllabusId: uuid("syllabus_id").references(() => syllabi.id, {
-    onDelete: "set null",
-  }),
-  title: text("title").notNull(),
-  subjectCode: text("subject_code"),
-  academicYear: integer("academic_year"),
-  semester: semesterEnum("semester"),
-  description: text("description"),
-  learningObjectives: jsonb("learning_objectives").$type<string[]>().notNull().default([]),
-  schemaVersion: text("schema_version").notNull().default("1.0"),
-  source: courseSourceEnum("source").notNull().default("imported"),
-  createdAt: timestamp("created_at").defaultNow().notNull(),
-  updatedAt: timestamp("updated_at").defaultNow().notNull(),
-});
+export const courses = pgTable(
+  "course",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    ownerId: uuid("owner_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    subjectId: uuid("subject_id").references(() => subjects.id, {
+      onDelete: "set null",
+    }),
+    syllabusId: uuid("syllabus_id").references(() => syllabi.id, {
+      onDelete: "set null",
+    }),
+    title: text("title").notNull(),
+    subjectCode: text("subject_code"),
+    academicYear: integer("academic_year"),
+    semester: semesterEnum("semester"),
+    description: text("description"),
+    learningObjectives: jsonb("learning_objectives").$type<string[]>().notNull().default([]),
+    schemaVersion: text("schema_version").notNull().default("1.0"),
+    source: courseSourceEnum("source").notNull().default("imported"),
+    versionGroupId: uuid("version_group_id").notNull(),
+    version: integer("version").notNull().default(1),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+    updatedAt: timestamp("updated_at").defaultNow().notNull(),
+  },
+  (table) => [
+    // Also the backstop against two concurrent regenerations racing to
+    // the same version number — the insert path takes an advisory lock
+    // first, so in practice this should never fire.
+    unique().on(table.versionGroupId, table.version),
+    // The library and every ownership check filter on owner_id.
+    index("course_owner_id_idx").on(table.ownerId),
+  ]
+);
 
 export const courseModules = pgTable("course_module", {
   id: uuid("id").primaryKey().defaultRandom(),

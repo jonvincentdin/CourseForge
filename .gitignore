@@ -43,3 +43,6 @@ next-env.d.ts
 -e 
 # local file storage (dev only)
 /storage
+
+#commit message
+commit-msg.txt

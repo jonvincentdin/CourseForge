@@ -1,16 +1,22 @@
 "use client";
 
 import { useState, type FormEvent } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { signIn } from "next-auth/react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { safeCallbackUrl } from "@/lib/safe-redirect";
+import { authCrossLink, authIntro } from "@/components/auth/auth-callback";
 
 export function SignupForm() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const callbackUrl = safeCallbackUrl(searchParams.get("callbackUrl"));
+  const intro = authIntro(callbackUrl, "signup");
+  const loginHref = authCrossLink("/login", callbackUrl);
 
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
@@ -46,11 +52,11 @@ export function SignupForm() {
 
     if (result?.error) {
       setError("Account created, but sign-in failed. Try signing in directly.");
-      router.push("/login");
+      router.push(loginHref);
       return;
     }
 
-    router.push("/dashboard");
+    router.push(callbackUrl);
     router.refresh();
   }
 
@@ -59,7 +65,7 @@ export function SignupForm() {
       <CardHeader>
         <CardTitle>Create your account</CardTitle>
         <CardDescription>
-          Upload a syllabus once, then generate courses whenever you need them.
+          {intro ?? "Upload a syllabus once, then generate courses whenever you need them."}
         </CardDescription>
       </CardHeader>
       <CardContent>
@@ -116,7 +122,7 @@ export function SignupForm() {
 
         <p className="mt-6 text-center text-sm text-steel-soft">
           Already have an account?{" "}
-          <Link href="/login" className="font-medium text-ink hover:text-ember">
+          <Link href={loginHref} className="font-medium text-ink hover:text-ember">
             Sign in
           </Link>
         </p>

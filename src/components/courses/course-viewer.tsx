@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { MarkdownContent } from "@/components/courses/markdown-content";
 import { ModuleQuiz } from "@/components/courses/module-quiz";
@@ -27,15 +28,35 @@ function moduleStatus(progress: ViewerProgress | undefined): "done" | "current" 
   return "todo";
 }
 
-export function CourseViewer({
-  courseId,
-  modules,
-  initialProgress,
-}: {
-  courseId: string;
+/**
+ * Where lesson/quiz requests go. Owners use their course's own endpoints;
+ * the shared viewer passes `/api/share/{token}` instead, which runs the
+ * same calls through the share-access gate.
+ */
+type ViewerEndpoint = { courseId: string; apiBase?: never } | { apiBase: string; courseId?: never };
+
+export type CourseViewerProps = ViewerEndpoint & {
   modules: ViewerModule[];
   initialProgress: Record<string, ViewerProgress>;
-}) {
+  /**
+   * "saved" (default): progress is written through the API.
+   * "anonymous": a signed-out visitor — "Mark lesson complete" only
+   * updates local state, and quiz results are graded but not stored.
+   */
+  persistence?: "saved" | "anonymous";
+  /** Where "Sign in to save your progress" points in anonymous mode. */
+  signInHref?: string;
+};
+
+export function CourseViewer({
+  modules,
+  initialProgress,
+  persistence = "saved",
+  signInHref,
+  ...endpoint
+}: CourseViewerProps) {
+  const apiBase = endpoint.apiBase ?? `/api/courses/${endpoint.courseId}`;
+  const isAnonymous = persistence === "anonymous";
   const router = useRouter();
   const [progress, setProgress] = useState(initialProgress);
   const [activeModuleId, setActiveModuleId] = useState<string>(() => {
@@ -54,25 +75,48 @@ export function CourseViewer({
   const activeModule = modules.find((m) => m.id === activeModuleId) ?? modules[0];
   const activeProgress = progress[activeModule?.id ?? ""];
 
+  function markLocallyComplete(moduleId: string) {
+    setProgress((prev) => ({
+      ...prev,
+      [moduleId]: {
+        lessonCompleted: true,
+        quizScore: prev[moduleId]?.quizScore ?? null,
+        quizTotal: prev[moduleId]?.quizTotal ?? null,
+      },
+    }));
+  }
+
   async function handleMarkComplete() {
+    if (isAnonymous) {
+      // Nothing to persist for a signed-out visitor; keep it for this visit only.
+      markLocallyComplete(activeModule.id);
+      return;
+    }
+
     setIsMarking(true);
     const response = await fetch(
-      `/api/courses/${courseId}/modules/${activeModule.id}/complete-lesson`,
+      `${apiBase}/modules/${activeModule.id}/complete-lesson`,
       { method: "POST" }
-    );
+    ).catch(() => null);
     setIsMarking(false);
 
-    if (response.ok) {
-      setProgress((prev) => ({
-        ...prev,
-        [activeModule.id]: {
-          lessonCompleted: true,
-          quizScore: prev[activeModule.id]?.quizScore ?? null,
-          quizTotal: prev[activeModule.id]?.quizTotal ?? null,
-        },
-      }));
+    if (response?.ok) {
+      markLocallyComplete(activeModule.id);
       router.refresh();
     }
+  }
+
+  // Anonymous quiz results still count toward this visit's progress bar.
+  function handleQuizGraded(moduleId: string, score: number, total: number) {
+    if (!isAnonymous) return;
+    setProgress((prev) => ({
+      ...prev,
+      [moduleId]: {
+        lessonCompleted: prev[moduleId]?.lessonCompleted ?? false,
+        quizScore: score,
+        quizTotal: total,
+      },
+    }));
   }
 
   if (!activeModule) {
@@ -92,6 +136,18 @@ export function CourseViewer({
             style={{ width: `${percent}%` }}
           />
         </div>
+        {isAnonymous && (
+          <p className="mt-2 text-xs text-steel-soft">
+            Progress isn&apos;t saved while you&apos;re signed out.{" "}
+            {signInHref ? (
+              <Link href={signInHref} className="font-medium text-ink underline-offset-2 hover:text-ember hover:underline">
+                Sign in to save your progress
+              </Link>
+            ) : (
+              "Sign in to save your progress."
+            )}
+          </p>
+        )}
       </div>
 
       <div className="mt-6 grid gap-6 lg:grid-cols-[240px_1fr]">
@@ -148,7 +204,9 @@ export function CourseViewer({
             <div className="mt-3">
               <ModuleQuiz
                 key={activeModule.id}
-                courseId={courseId}
+                apiBase={apiBase}
+                persistence={persistence}
+                onGraded={(score, total) => handleQuizGraded(activeModule.id, score, total)}
                 moduleId={activeModule.id}
                 quizTitle={activeModule.quizTitle}
                 questions={activeModule.questions}

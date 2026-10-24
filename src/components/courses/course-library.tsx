@@ -21,6 +21,7 @@ import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
 import { ActionMenu, type ActionMenuItem } from "@/components/ui/menu";
 import { DeleteCourseDialog } from "@/components/courses/delete-course-dialog";
+import { ShareCourseDialog } from "@/components/courses/share-course-dialog";
 import { cn } from "@/lib/utils";
 
 const SOURCE_OPTIONS: { value: LibraryFilters["source"]; label: string }[] = [
@@ -54,12 +55,18 @@ const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
 export function CourseLibrary({ courses }: { courses: LibraryCourse[] }) {
   const router = useRouter();
   const [filters, setFilters] = useState<LibraryFilters>(DEFAULT_LIBRARY_FILTERS);
+  // The dialog stays mounted once used (only `open` toggles), so closing
+  // it runs the native close() and focus returns to the card's menu button.
   const [deleteTarget, setDeleteTarget] = useState<LibraryCourse | null>(null);
+  const [deleteOpen, setDeleteOpen] = useState(false);
+  // Same mounted-once pattern for the share dialog.
+  const [shareTarget, setShareTarget] = useState<LibraryCourse | null>(null);
+  const [shareOpen, setShareOpen] = useState(false);
   // Hidden immediately on delete so the card doesn't linger while the refresh is in flight.
   const [removedIds, setRemovedIds] = useState<Set<string>>(() => new Set());
   const [announcement, setAnnouncement] = useState<string | null>(null);
   const resultsRef = useRef<HTMLParagraphElement>(null);
-  const focusResultsAfterRefresh = useRef(false);
+  const focusResultsAfterDelete = useRef(false);
   const ids = { search: useId(), source: useId(), status: useId(), sort: useId(), versions: useId() };
 
   const available = useMemo(
@@ -74,15 +81,16 @@ export function CourseLibrary({ courses }: { courses: LibraryCourse[] }) {
   const olderVersionCount = available.filter((c) => !c.isLatestVersion).length;
   const narrowed = hasActiveFilters(filters);
 
-  // After a delete, the deleted card's menu trigger is gone — park focus
-  // on the results summary once the refreshed list arrives instead of
-  // dropping it on <body>.
+  // After a delete, the card (and the menu button the dialog would
+  // return focus to) is gone — park focus on the results summary, which
+  // also carries the "Deleted …" announcement, instead of <body>. Child
+  // effects run first, so this lands after the dialog's own close().
   useEffect(() => {
-    if (focusResultsAfterRefresh.current) {
-      focusResultsAfterRefresh.current = false;
+    if (focusResultsAfterDelete.current) {
+      focusResultsAfterDelete.current = false;
       resultsRef.current?.focus();
     }
-  }, [courses]);
+  }, [removedIds]);
 
   function update<K extends keyof LibraryFilters>(key: K, value: LibraryFilters[K]) {
     setFilters((prev) => ({ ...prev, [key]: value }));
@@ -101,7 +109,7 @@ export function CourseLibrary({ courses }: { courses: LibraryCourse[] }) {
         ? `Deleted version ${course.version} of “${course.title}”.`
         : `Deleted “${course.title}”.`
     );
-    focusResultsAfterRefresh.current = true;
+    focusResultsAfterDelete.current = true;
     router.refresh();
   }
 
@@ -250,17 +258,37 @@ export function CourseLibrary({ courses }: { courses: LibraryCourse[] }) {
         <ul role="list" className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {visible.map((course) => (
             <li key={course.id}>
-              <CourseCard course={course} onDelete={() => setDeleteTarget(course)} />
+              <CourseCard
+                course={course}
+                onDelete={() => {
+                  setDeleteTarget(course);
+                  setDeleteOpen(true);
+                }}
+                onShare={() => {
+                  setShareTarget(course);
+                  setShareOpen(true);
+                }}
+              />
             </li>
           ))}
         </ul>
       )}
 
+      {shareTarget && (
+        <ShareCourseDialog
+          course={shareTarget}
+          open={shareOpen}
+          onOpenChange={setShareOpen}
+          // Re-fetch the library so the card's sharing indicator matches.
+          onChanged={() => router.refresh()}
+        />
+      )}
+
       {deleteTarget && (
         <DeleteCourseDialog
           course={deleteTarget}
-          open
-          onOpenChange={(open) => !open && setDeleteTarget(null)}
+          open={deleteOpen}
+          onOpenChange={setDeleteOpen}
           onDeleted={() => handleDeleted(deleteTarget)}
         />
       )}
@@ -268,7 +296,15 @@ export function CourseLibrary({ courses }: { courses: LibraryCourse[] }) {
   );
 }
 
-function CourseCard({ course, onDelete }: { course: LibraryCourse; onDelete: () => void }) {
+function CourseCard({
+  course,
+  onDelete,
+  onShare,
+}: {
+  course: LibraryCourse;
+  onDelete: () => void;
+  onShare: () => void;
+}) {
   const titleId = useId();
   const status = progressStatus(course);
   const percent = progressPercent(course);
@@ -283,7 +319,22 @@ function CourseCard({ course, onDelete }: { course: LibraryCourse; onDelete: () 
   const actionLabel =
     status === "not_started" ? "Start" : status === "completed" ? "Review" : "Continue";
 
+  const isLinkShared = course.visibility === "link";
+  const isShared = isLinkShared || course.sharedPeopleCount > 0;
+  const shareSummary = isLinkShared
+    ? "Anyone with the link can view"
+    : course.sharedPeopleCount > 0
+      ? `Private · shared with ${course.sharedPeopleCount} ${
+          course.sharedPeopleCount === 1 ? "person" : "people"
+        }`
+      : "Private";
+
   const menuItems: ActionMenuItem[] = [
+    {
+      label: "Share…",
+      description: shareSummary,
+      onSelect: onShare,
+    },
     course.canRegenerate
       ? { label: "Regenerate", href: `${href}/regenerate` }
       : {
@@ -313,12 +364,19 @@ function CourseCard({ course, onDelete }: { course: LibraryCourse; onDelete: () 
     >
       <div className="flex items-start gap-3">
         <div className="min-w-0 flex-1">
-          {(course.subjectCode || course.versionCount > 1) && (
+          {(course.subjectCode || course.versionCount > 1 || isShared) && (
             <div className="mb-2 flex flex-wrap items-center gap-1.5">
               {course.subjectCode && <Badge tone="neutral">{course.subjectCode}</Badge>}
               {course.versionCount > 1 && (
                 <Badge tone={course.isLatestVersion ? "ember" : "neutral"}>
                   v{course.version} of {course.versionCount}
+                </Badge>
+              )}
+              {isShared && (
+                <Badge tone="neutral" className="gap-1">
+                  {isLinkShared ? <LinkIcon /> : <PeopleIcon />}
+                  {isLinkShared ? "Shared by link" : "Shared"}
+                  <span className="sr-only">: {shareSummary}</span>
                 </Badge>
               )}
               {!course.isLatestVersion && (
@@ -345,7 +403,7 @@ function CourseCard({ course, onDelete }: { course: LibraryCourse; onDelete: () 
       </div>
 
       <p className="mt-1.5 text-sm text-ink-soft">
-        {courseSourceLabel(course.source, course.syllabusTitle)}
+        {courseSourceLabel(course.source, course.syllabusTitle, course.originalCreatorName)}
       </p>
       <p className="mt-0.5 text-xs text-steel-soft">{meta.join(" · ")}</p>
 
@@ -403,6 +461,41 @@ function CourseCard({ course, onDelete }: { course: LibraryCourse; onDelete: () 
         </Link>
       </div>
     </article>
+  );
+}
+
+function LinkIcon() {
+  return (
+    <svg
+      aria-hidden="true"
+      viewBox="0 0 20 20"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.75"
+      className="h-3 w-3"
+    >
+      <path
+        d="M8.5 11.5a3 3 0 0 0 4.2 0l2.6-2.6a3 3 0 0 0-4.2-4.2l-.9.9M11.5 8.5a3 3 0 0 0-4.2 0l-2.6 2.6a3 3 0 0 0 4.2 4.2l.9-.9"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
+function PeopleIcon() {
+  return (
+    <svg
+      aria-hidden="true"
+      viewBox="0 0 20 20"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.75"
+      className="h-3 w-3"
+    >
+      <circle cx="8" cy="7" r="2.75" />
+      <path d="M3 16a5 5 0 0 1 10 0M13.5 4.5a2.75 2.75 0 0 1 0 5M15 12.2A5 5 0 0 1 17.5 16" strokeLinecap="round" />
+    </svg>
   );
 }
 

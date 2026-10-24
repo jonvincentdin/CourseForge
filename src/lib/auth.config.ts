@@ -1,4 +1,5 @@
 import type { NextAuthConfig } from "next-auth";
+import { safeCallbackUrl } from "@/lib/safe-redirect";
 
 /**
  * This config must stay edge-safe: no database driver, no bcrypt.
@@ -24,7 +25,10 @@ export const authConfig = {
       }
 
       if (isLoggedIn && ["/login", "/signup"].includes(nextUrl.pathname)) {
-        return Response.redirect(new URL("/dashboard", nextUrl));
+        // Honour a (sanitised) callbackUrl so an already-signed-in user
+        // following "Sign in" from a share page lands back on it.
+        const target = safeCallbackUrl(nextUrl.searchParams.get("callbackUrl"));
+        return Response.redirect(new URL(target, nextUrl));
       }
 
       return true;

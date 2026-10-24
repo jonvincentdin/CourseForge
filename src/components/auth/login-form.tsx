@@ -8,11 +8,15 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { safeCallbackUrl } from "@/lib/safe-redirect";
+import { authCrossLink, authIntro } from "@/components/auth/auth-callback";
 
 export function LoginForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const callbackUrl = searchParams.get("callbackUrl") ?? "/dashboard";
+  // Never push a raw callbackUrl — that's an open redirect.
+  const callbackUrl = safeCallbackUrl(searchParams.get("callbackUrl"));
+  const intro = authIntro(callbackUrl, "login");
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -46,7 +50,7 @@ export function LoginForm() {
       <CardHeader>
         <CardTitle>Sign in</CardTitle>
         <CardDescription>
-          Welcome back. Sign in to reach your syllabi and courses.
+          {intro ?? "Welcome back. Sign in to reach your syllabi and courses."}
         </CardDescription>
       </CardHeader>
       <CardContent>
@@ -89,7 +93,10 @@ export function LoginForm() {
 
         <p className="mt-6 text-center text-sm text-steel-soft">
           Don&apos;t have an account?{" "}
-          <Link href="/signup" className="font-medium text-ink hover:text-ember">
+          <Link
+            href={authCrossLink("/signup", callbackUrl)}
+            className="font-medium text-ink hover:text-ember"
+          >
             Create one
           </Link>
         </p>

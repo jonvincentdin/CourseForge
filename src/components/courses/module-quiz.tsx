@@ -14,13 +14,19 @@ interface GradedQuestion {
 type QuizState = "summary" | "taking" | "graded";
 
 export function ModuleQuiz({
-  courseId,
+  apiBase,
+  persistence = "saved",
+  onGraded,
   moduleId,
   quizTitle,
   questions,
   initialScore,
 }: {
-  courseId: string;
+  /** `/api/courses/{id}` for the owner, `/api/share/{token}` for the shared viewer. */
+  apiBase: string;
+  /** "anonymous": graded server-side but never stored — results say so. */
+  persistence?: "saved" | "anonymous";
+  onGraded?: (score: number, total: number) => void;
   moduleId: string;
   quizTitle: string;
   questions: ClientQuizQuestion[];
@@ -33,6 +39,8 @@ export function ModuleQuiz({
   const [total, setTotal] = useState(initialScore?.total ?? questions.length);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Share endpoints report whether the attempt was stored; owner endpoints don't, so undefined = saved.
+  const [saved, setSaved] = useState<boolean | undefined>(undefined);
 
   const sorted = [...questions].sort((a, b) => a.sortOrder - b.sortOrder);
   const resultsByQuestion = Object.fromEntries(results.map((r) => [r.questionId, r]));
@@ -55,27 +63,31 @@ export function ModuleQuiz({
     setError(null);
     setIsSubmitting(true);
 
-    const response = await fetch(
-      `/api/courses/${courseId}/modules/${moduleId}/quiz-attempt`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ answers }),
-      }
-    );
+    const response = await fetch(`${apiBase}/modules/${moduleId}/quiz-attempt`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ answers }),
+    }).catch(() => null);
 
-    const body = await response.json().catch(() => null);
+    const body = await response?.json().catch(() => null);
     setIsSubmitting(false);
 
-    if (!response.ok) {
-      setError(body?.error ?? "Couldn't submit the quiz. Please try again.");
+    if (!response?.ok) {
+      setError(
+        body?.error ??
+          (response
+            ? "Couldn't submit the quiz. Please try again."
+            : "Couldn't reach CourseForge — check your connection and try again.")
+      );
       return;
     }
 
     setResults(body.results);
     setScore(body.score);
     setTotal(body.total);
+    setSaved(typeof body.saved === "boolean" ? body.saved : undefined);
     setState("graded");
+    onGraded?.(body.score, body.total);
   }
 
   function handleRetake() {
@@ -105,6 +117,11 @@ export function ModuleQuiz({
       {state === "graded" && (
         <p className="mt-1 text-sm font-medium text-ink">
           Score: {score}/{total}
+        </p>
+      )}
+      {state === "graded" && (persistence === "anonymous" || saved === false) && (
+        <p className="mt-1 text-xs text-steel-soft">
+          This score isn&apos;t saved — sign in to keep your quiz results.
         </p>
       )}
 
@@ -240,7 +257,11 @@ export function ModuleQuiz({
         })}
       </div>
 
-      {error && <p className="mt-3 text-sm text-danger">{error}</p>}
+      {error && (
+        <p role="alert" className="mt-3 text-sm text-danger">
+          {error}
+        </p>
+      )}
 
       <div className="mt-5">
         {state === "taking" ? (

@@ -29,6 +29,9 @@ function course(overrides: Partial<LibraryCourse> & { id: string }): LibraryCour
     createdAt: "2026-01-01T00:00:00.000Z",
     totalModules: 4,
     completedModules: 0,
+    visibility: "private",
+    originalCreatorName: null,
+    sharedPeopleCount: 0,
     ...overrides,
   };
 }
@@ -73,6 +76,15 @@ describe("courseSourceLabel", () => {
     expect(courseSourceLabel("imported", "BSCS 2024")).toBe("Imported from JSON");
     expect(courseSourceLabel("shared_copy", null)).toBe("Added from a shared course");
   });
+
+  it("credits the original creator on shared copies when a name was captured", () => {
+    expect(courseSourceLabel("shared_copy", null, "Maria Santos")).toBe(
+      "Added from a shared course · by Maria Santos"
+    );
+    expect(courseSourceLabel("shared_copy", null, "   ")).toBe("Added from a shared course");
+    // Only shared copies carry attribution.
+    expect(courseSourceLabel("imported", null, "Maria Santos")).toBe("Imported from JSON");
+  });
 });
 
 describe("filterCourses", () => {
@@ -98,6 +110,7 @@ describe("filterCourses", () => {
       id: "c",
       title: "Philippine History",
       source: "shared_copy",
+      originalCreatorName: "Maria Santos",
       createdAt: "2026-04-01T00:00:00.000Z",
     }),
     // Two versions of the same course; only v2 is the latest.
@@ -141,6 +154,10 @@ describe("filterCourses", () => {
     expect(ids(filterCourses(library, filters({ query: "math101" })))).toEqual(["b"]);
     expect(ids(filterCourses(library, filters({ query: "LINKED LISTS" })))).toEqual(["a"]);
     expect(ids(filterCourses(library, filters({ query: "computer science" })))).toEqual(["a"]);
+  });
+
+  it("matches a shared copy by its original creator's name", () => {
+    expect(ids(filterCourses(library, filters({ query: "santos" })))).toEqual(["c"]);
   });
 
   it("requires every search term to match somewhere", () => {

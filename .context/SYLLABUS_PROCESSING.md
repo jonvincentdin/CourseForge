@@ -83,6 +83,15 @@ discards any manual edits or manually-added subjects — the UI
 calling it. Verified live: reprocessing after an edit + a manual add
 correctly reverted to the freshly re-detected 5 subjects.
 
+**Side effect on courses (found in Milestone 8):** because the
+subjects are deleted and recreated rather than updated, every course
+generated from this syllabus has its `subject_id` set to null (the FK
+is `set null`). The courses themselves are unaffected, but they can no
+longer be regenerated — the library and course page show "can't
+regenerate" and the regenerate API returns `409` — even though the
+syllabus still exists. The reprocess confirmation doesn't mention
+this. Open question in `DECISIONS.md`.
+
 ## Syllabus library (`/syllabi`)
 
 View / rename (API only right now, no rename UI yet — see below) /

@@ -1,3 +1,4 @@
+import { Suspense } from "react";
 import type { Metadata } from "next";
 import { SignupForm } from "@/components/auth/signup-form";
 
@@ -6,5 +7,10 @@ export const metadata: Metadata = {
 };
 
 export default function SignupPage() {
-  return <SignupForm />;
+  // useSearchParams (for callbackUrl) needs a Suspense boundary on a static page.
+  return (
+    <Suspense>
+      <SignupForm />
+    </Suspense>
+  );
 }

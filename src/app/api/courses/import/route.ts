@@ -7,6 +7,11 @@ const requestSchema = z.object({
   json: z.string().min(1, "Paste the course JSON first."),
   subjectId: z.string().uuid().optional(),
   syllabusId: z.string().uuid().optional(),
+  // Milestone 8: import the pasted JSON as the next version of this
+  // owned course (the external-AI regeneration path). When present,
+  // importCourseFromJson ignores subjectId/syllabusId above and
+  // re-derives them from that course.
+  regenerateFromCourseId: z.string().uuid().optional(),
 });
 
 export async function POST(request: Request) {
@@ -28,6 +33,7 @@ export async function POST(request: Request) {
     rawJson: parsed.data.json,
     subjectId: parsed.data.subjectId,
     syllabusId: parsed.data.syllabusId,
+    regenerateFromCourseId: parsed.data.regenerateFromCourseId,
   });
 
   if (!result.ok) {

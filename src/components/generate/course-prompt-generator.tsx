@@ -115,8 +115,10 @@ export function CoursePromptGenerator({
           </label>
         </div>
 
+        {/* A file download from an API route, not a page — so a plain <a download>, not <Link>. */}
         <a
           href="/api/courses/schema"
+          download
           className="mt-5 inline-block text-sm font-medium text-ink-soft hover:text-ink"
         >
           Download JSON Schema

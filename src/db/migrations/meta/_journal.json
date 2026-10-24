@@ -36,6 +36,13 @@
       "when": 1792766099166,
       "tag": "0004_modern_colossus",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1792767259336,
+      "tag": "0005_late_exodus",
+      "breakpoints": true
     }
   ]
 }

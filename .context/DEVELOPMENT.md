@@ -12,16 +12,28 @@ npm install
 cp .env.example .env.local
 # Fill in DATABASE_URL and AUTH_SECRET in .env.local
 npx auth secret   # generates and writes AUTH_SECRET for you
-npm run db:push   # push the schema to your database (no migrations yet — see below)
+# also set ENCRYPTION_KEY (openssl rand -base64 32) — see below
+npm run db:migrate   # apply the committed migrations (0000–0005)
+npm test             # unit tests, no database needed
 npm run dev
 ```
 
 ## Environment variables
 
-See `.env.example`. As of Milestone 1: `DATABASE_URL`, `AUTH_SECRET`,
-`NEXTAUTH_URL`. Nothing else is read by the app yet — the
-`ENCRYPTION_KEY` line is a placeholder comment for Milestone 6, not a
-variable the app currently uses.
+See `.env.example`. Read by the app today:
+
+| Variable | Since | Notes |
+|---|---|---|
+| `DATABASE_URL` | Milestone 1 | Postgres connection string |
+| `AUTH_SECRET` | Milestone 1 | `npx auth secret` |
+| `NEXTAUTH_URL` | Milestone 1 | base URL for Auth.js redirects (read by Auth.js itself, not app code) |
+| `STORAGE_DIR` | Milestone 2 | where syllabus PDFs go; defaults to `./storage` |
+| `ENCRYPTION_KEY` | Milestone 6 | encrypts saved AI API keys; must differ from `AUTH_SECRET`. Without it, saving an AI config and every direct generation/regeneration with a saved key throws |
+
+Milestones 8 and 9 added no environment variables. `npm test` needs
+none of them — the unit tests never touch the database. Share links
+are built from `window.location.origin` in the browser, so there's no
+base-URL setting for them either.
 
 ## Development commands
 
@@ -31,6 +43,7 @@ variable the app currently uses.
 | `npm run build` | Production build |
 | `npm run start` | Run a production build |
 | `npm run lint` | ESLint (flat config, `next/core-web-vitals` + `next/typescript` via `FlatCompat`) |
+| `npm test` | `vitest run` — unit tests (Milestone 8) |
 | `npm run db:generate` | Generate a SQL migration from `src/db/schema.ts` |
 | `npm run db:migrate` | Apply generated migrations |
 | `npm run db:push` | Push schema directly without a migration file (fine for early/local dev, not for shared environments) |
@@ -38,12 +51,38 @@ variable the app currently uses.
 
 ## Testing
 
-No automated tests yet. Milestone 1 was verified manually via
-`tsc --noEmit`, `eslint .`, and `next build` (see `DECISIONS.md` for
-the one build-environment caveat around font fetching). Add a real
-test setup (Vitest is already available as a transitive dependency,
-but not configured) when there's actual business logic worth testing
-— Milestone 2's syllabus-extraction logic is a good place to start.
+**Vitest** (Milestone 8), `npm test` → `vitest run`. Pinned to
+**`^3.2.7`**, not the latest major: vitest 5 requires
+`@types/node >= 22`, and this project pins `@types/node ^20` — see
+`DECISIONS.md` before bumping either.
+
+`vitest.config.ts`: `environment: "node"`, includes
+`src/**/*.test.ts`, and aliases `@` → `./src` to mirror `tsconfig`'s
+`@/*` paths. Tests sit next to the module they test.
+
+Scope is **pure logic only** — nothing touches the database, so
+there's no test DB to provision. Current suite, **95 tests in 5 files,
+all passing** (42 in 3 files at the end of Milestone 8):
+
+| File | Covers |
+|---|---|
+| `src/lib/course-library-filter.test.ts` (21) | progress status/percent/label, source labels (including the copy's "· by {creator}"), search/filter/sort/older-version rules, `hasActiveFilters` |
+| `src/lib/course-markdown-export.test.ts` | heading shifting (incl. code fences and unclosed fences), document structure, answer keys for all 4 question types, option labels, export filenames |
+| `src/lib/prompt-generator.test.ts` | omitted vs. `full` focus give identical output with no Focus section; topics/exam sections (placement, fencing, backtick neutralising); `courseFocusSchema` trims and rejects empty/oversized topics and unknown kinds |
+| `src/lib/safe-redirect.test.ts` (28, Milestone 9) | `safeCallbackUrl`: same-origin paths keep query + hash, the share page's encoded callback round-trips, dot segments normalise, 22 parametrised hostile inputs fall back (protocol-relative, backslash variants, absolute/`javascript:`/`data:` URLs, tab/newline/NUL/DEL smuggling, percent-encoded slashes/backslash/tab, malformed `%`, empty), non-strings, overlong input, custom fallback |
+| `src/lib/sharing-utils.test.ts` (23, Milestone 9) | share tokens (32 base64url chars decoding to 24 bytes, 2,000 generated with no repeats, malformed shapes and non-strings rejected), email normalisation and parsing, owner display names never falling back to anything but "A CourseForge student", the copy-provenance label |
+
+Everything with a database or HTTP in it is still verified by live
+checks against a real Postgres and a real server (see `MILESTONES.md`
+for each milestone's list). Good next candidates for unit tests:
+`src/lib/syllabus-extraction.ts`, `src/lib/quiz-grading.ts`, and
+`src/lib/course-schema.ts`'s validator — all pure, all currently
+covered only by live checks.
+
+The static checks used to sign off Milestones 8 and 9: `npx tsc
+--noEmit`, `npx eslint src`, `npm run build`, `npm test` — all clean.
+Sharing's database and HTTP behaviour (63 checks) was verified live,
+not by unit tests; see `MILESTONES.md`.
 
 ## Build process / deployment
 
@@ -63,6 +102,22 @@ resistance for Next.js + this stack, but nothing here assumes it).
 - Design tokens live in `src/app/globals.css`'s `@theme inline` block
   — don't hardcode hex colors in components; use the token classes
   (`bg-paper`, `text-ink-soft`, `border-ember`, etc.).
+- No browser `confirm()`/`alert()`/`prompt()` in new UI (Milestone 8
+  onward): use `ConfirmDialog` (`src/components/ui/dialog.tsx`) for
+  confirmations and inline `role="alert"`/`role="status"` messages
+  for results. See `UI_UX.md`.
+- Keep formatting/filtering logic that a client component needs in a
+  pure, DB-free module under `src/lib/` with a `*.test.ts` beside it
+  (the Milestone 8 pattern: `course-library-filter.ts`,
+  `course-markdown-export.ts`, `prompt-generator.ts`; Milestone 9 added
+  `sharing-utils.ts` and `safe-redirect.ts`). Don't import a
+  `*-service.ts` module from a client component. Those pull in the
+  database; import the pure helper directly (or `import type`).
+- Never push or redirect to a raw `callbackUrl` or any other
+  user-supplied URL. Run it through `safeCallbackUrl`
+  (`src/lib/safe-redirect.ts`).
+- Never log a share token. In `/api/share` routes, log unexpected
+  errors with `logShareError` only (see `SECURITY.md`).
 
 ## Important implementation notes
 
@@ -97,9 +152,33 @@ resistance for Next.js + this stack, but nothing here assumes it).
   confirmed the server discarded it and re-graded for real). If
   you're picking this project up fresh, `apt-get install postgresql`,
   `service postgresql start`, `createdb courseforge`,
-  `npm run db:migrate` (there are now four migration files — `0000`
+  `npm run db:migrate` (there are now six migration files — `0000`
   from Milestones 1/2, `0001` from Milestone 4, `0002` from Milestone
-  6, `0003` from Milestone 7) gets you a working local database fast
-  for the same kind of verification. Set a real `ENCRYPTION_KEY`
-  before testing anything AI-config-related, or `saveAiConfig`/
-  `decryptSecret` will throw.
+  6, `0003` from Milestone 7, `0004` from Milestone 8, `0005` from
+  Milestone 9) gets you a
+  working local database fast for the same kind of verification. Set a
+  real `ENCRYPTION_KEY` before testing anything AI-config-related, or
+  `saveAiConfig`/`decryptSecret` will throw. Milestone 8 went a step
+  further than earlier milestones: its 34 live checks ran against a
+  production build (`npm run build` + `npm run start`), not the dev
+  server, with two real accounts, and migration `0004` was applied to
+  a database that already held course rows to prove its backfill.
+  Milestone 9 did the same with four real clients (owner, viewer,
+  invitee, anonymous): 63 checks, plus a re-run of Milestone 8's 34.
+  Migration `0005` was applied to a database holding 8 courses.
+  Plain `fetch` with a hand-rolled cookie jar and `redirect: "manual"`
+  was enough to drive the Auth.js credentials flow (CSRF token → POST
+  `/api/auth/callback/credentials`) for each account.
+- **Migration `0004` is hand-edited.** drizzle-kit generated a
+  `NOT NULL` column add that fails on any database with existing
+  courses; the committed file adds `version_group_id` nullable,
+  backfills it, then sets `NOT NULL` (see `DATABASE.md`). If you
+  regenerate migrations, check it still does that. `drizzle-kit
+  generate` doesn't connect to the database, but it does need
+  `DATABASE_URL` set to *some* Postgres URL string.
+- **Don't run `next build`/`next start` while `next dev` is running in
+  the same checkout.** They share the `.next` directory and corrupt
+  each other. The symptom is `Cannot read properties of undefined
+  (reading 'call')` from `webpack-runtime`. Stop the dev server first
+  (and delete `.next` if it's already broken), or build from a
+  separate copy of the repo.

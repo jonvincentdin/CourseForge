@@ -413,43 +413,399 @@ without a schema change, but nothing sharing-related is built yet).
 
 ---
 
-## Milestone 8 — Course Management — `[ ]` Not started
+## Milestone 8 — Course Management — `[✓]` Complete
 
-Course library, search/filter, regeneration, versioning, delete,
-export, source metadata.
+- [x] Course library — `/courses` rebuilt from a minimal list into a
+      real library (`CourseLibrary`, client): one card per course with
+      title, subject-code badge, source line, Year · Semester, module
+      count, progress bar + label ("Not started" / "N% Complete" /
+      "Completed"), and a Start / Continue / Review primary action. All
+      of it comes from `listCourseLibrary` — exactly two queries
+      regardless of library size, no N+1
+- [x] Search — matches title, subject code, description, and source
+      syllabus title, case-insensitive; every whitespace-separated term
+      must match (`src/lib/course-library-filter.ts`, pure, unit-tested)
+- [x] Filtering — Source (All / Generated / Imported / Added from
+      shared), Progress (Any / Not started / In progress / Completed),
+      Sort (Most recent / Title A–Z / Progress), "Show older versions"
+      toggle (only rendered when older versions exist). Live
+      `aria-live` result count, a filtered-to-zero state with "Clear
+      filters". Runs client-side over the full per-user list — see
+      `DECISIONS.md`
+- [x] Regeneration — `/courses/[id]/regenerate` (product brief §42):
+      depth, focus (Full syllabus / Specific topics with a 500-char
+      textarea + counter / Exam preparation), learning-objectives
+      toggle, and either Direct AI (`POST /api/courses/[id]/regenerate`)
+      or External AI prompt + JSON paste (`POST /api/courses/import` with
+      `regenerateFromCourseId`). Subject/syllabus provenance is always
+      re-derived server-side from the owned course, never taken from the
+      client. A course whose source subject/syllabus is gone gets an
+      explanatory page instead of a form, and the API returns `409`
+- [x] Versioning — `course.version_group_id` + `course.version`
+      (migration `0004`, hand-edited to backfill existing rows).
+      Regeneration never modifies or deletes the old course: it inserts
+      a new row in the same group with `version = max(version in group)
+      + 1`, computed inside the insert transaction under a
+      `pg_advisory_xact_lock` on the group, with a
+      `unique(version_group_id, version)` backstop. Deleting an older
+      version never frees its number (only deleting the newest does —
+      see `DATABASE.md`). The course page shows a "N versions of this
+      course" disclosure; library cards show "v2 of 3" and an "Older
+      version" marker
+- [x] Delete — `DELETE /api/courses/[id]` behind a real `ConfirmDialog`
+      (native `<dialog>`, no browser `confirm()`), from both the library
+      card menu and the course page header. Deletes exactly one version;
+      the dialog says so and says how many other versions stay.
+      Cascades remove modules, quizzes, questions, and progress rows
+- [x] Export — `GET /api/courses/[id]/export?format=json|markdown`.
+      JSON (the default) is unchanged and still lossless/re-importable;
+      Markdown (`src/lib/course-markdown-export.ts`) is a readable study
+      document with a per-module answer key — see `COURSE_SCHEMA.md`.
+      Filenames carry `-v{n}` for versions above 1
+- [x] Course source metadata — `course.source` is finally shown:
+      "Generated from {syllabus title}" / "Generated" (source syllabus
+      gone) / "Imported from JSON" / "Added from a shared course"
+      (Milestone 9's `shared_copy`, already labelled correctly), on
+      library cards and in the course page header alongside "Version N
+      · Created {date}"
+- [x] Automated tests — the project's first: vitest, `npm test`, unit
+      tests for pure logic only (library filtering, Markdown export,
+      prompt focus). See `DEVELOPMENT.md`
 
-## Milestone 9 — Course Sharing — `[ ]` Not started
+**Verified** — static checks, unit tests, a real migration against
+existing data, and live HTTP checks against a real production build
+(`next build` + `next start`), a real Postgres database, and two real
+accounts:
 
-Public/private sharing, secure tokens, share dialog, invitations,
-server-side authorization, Add to My Courses / Course Copies,
-auth-required-to-add flow with return-to-shared-course, duplicate
-handling. See `SHARING.md` and `SECURITY.md`.
+- `tsc --noEmit` clean, `eslint src` clean, `next build` succeeds,
+  `npm test` (vitest 3.x) **42/42 pass** across 3 test files
+  (`course-library-filter`, `course-markdown-export`,
+  `prompt-generator`)
+- Migration `0004` applied to a real Postgres 16 database that already
+  held two pre-Milestone-8 course rows: both were backfilled with
+  `version_group_id = id`, `version = 1`; the `NOT NULL`, the
+  `(version_group_id, version)` unique constraint, and
+  `course_owner_id_idx` were all present afterwards
+- **34/34 live checks passed:**
+  - Imported v1 → `version = 1`, group id equals its own id
+  - Regenerated via import with `regenerateFromCourseId` → v2 in the
+    same group, with subject/syllabus provenance re-derived
+    server-side; deliberately bogus `subjectId`/`syllabusId` values
+    sent alongside it were ignored. v1 was left untouched
+  - User B cannot version user A's course via import (`422` "Course
+    not found.", zero courses created for B). B gets `404` on
+    `DELETE`, direct regenerate, Markdown export, and the regenerate
+    page for A's course. Anonymous `DELETE` → `401`
+  - Direct regenerate with no AI config → `400`; oversized focus topics
+    (501 chars) → `400`
+  - Direct regenerate with a saved invalid Anthropic key → a real `502`
+    from Anthropic's live API ("Anthropic rejected the API key…"),
+    zero rows created, key absent from the response
+  - Markdown export → `200 text/markdown`, filename
+    `introduction-to-data-structures-v2.md`, containing the title,
+    `## Module 1`, and the answer key. JSON export unchanged
+  - `/courses`, `/courses/[id]`, `/courses/[id]/regenerate` all render
+    `200`; the `/courses` HTML contains no `"correctAnswer"`
+  - Owner deletes v1 → its modules are gone, v2 survives. The next
+    regeneration after deleting v1 gets **v3** (max + 1 of what
+    remains; the deleted v1's number is not handed out again)
+  - After deleting the source syllabus: regenerate → `409`, the
+    regenerate page renders its explanatory state, and the courses
+    themselves survive the syllabus deletion
+
+**Not verified** (know this before relying on it):
+
+- Concurrent regenerations racing each other. The advisory lock and
+  the unique constraint are both in place, but nothing exercised them
+  under real concurrency
+- No in-browser/manual UI pass of keyboard behaviour in the
+  `ActionMenu` or `ConfirmDialog` (focus trap, Escape, focus return,
+  arrow keys). Reviewed in code only
+- No successful real AI generation. No valid provider key was
+  available, so the focus prompts (topics / exam) are verified only by
+  unit tests, not by a real model's output
+
+**Explicitly out of scope / known limitations** (do not treat as
+bugs):
+
+- **Reprocessing a syllabus breaks regeneration for its courses.**
+  Reprocess deletes and recreates the syllabus's subjects, and
+  `course.subject_id` is `set null` on delete — so every course
+  generated from that syllabus shows "can't regenerate" and the
+  regenerate route returns `409`, even though the syllabus still
+  exists. Open product decision, recorded in `DECISIONS.md`'s open
+  questions
+- Library search/filter/sort is client-side over the full per-user
+  list. Fine at a student's course count; revisit with server-side
+  pagination if libraries get large
+- Syllabus delete/reprocess, subject removal, and AI-config removal
+  still use browser `confirm()`/`alert()` (Milestone 10).
+  `subject-prompt-panel.tsx` still uses `alert()` when copying fails.
+  Everything new in this milestone uses `ConfirmDialog` or inline
+  messages instead
+- **Behaviour change:** a plain (non-regeneration) import now rejects
+  a `subjectId` that doesn't belong to the supplied, owned syllabus
+  ("That subject doesn't belong to that syllabus."). Previously any
+  subject id was accepted once the syllabus checked out
+- Malformed (non-uuid) course ids now return `404` instead of a `500`
+  from Postgres
+- Unrelated fix that came along: the "Download JSON Schema" link in
+  `course-prompt-generator.tsx` gained a `download` attribute. That
+  fixed a pre-existing `@next/next/no-html-link-for-pages` lint error
+  that was blocking `next build`
+- The dashboard's progress figures still come from
+  `getCourseProgressSummaries` (Milestone 7), not `listCourseLibrary`.
+  Both use the same "done" definition
+- Sharing was not part of this milestone (Milestone 9 built it).
+  Only the display label for `shared_copy` existed at the time
+
+---
+
+## Milestone 9 — Course Sharing — `[✓]` Complete
+
+- [x] Two visibility modes — `course.visibility`: `private` (the
+      default) or `link` ("Anyone with the link"). Migration `0005`
+      adds the column with a constant default, so every existing course
+      became private with no share token
+- [x] Secure share links — one URL per course, `/share/{token}`, used
+      by both modes. The token is 24 CSPRNG bytes as base64url (exactly
+      32 characters, 192 bits, `src/lib/share-token.ts`), created
+      lazily the first time the owner saves share settings, stored in a
+      unique-indexed column, and shape-checked before any database
+      lookup. Turning "Anyone with the link" off keeps the token (turning
+      it back on restores the same link), but every request re-checks
+      visibility, so the public link stops working on the next request.
+      "Reset link" rotates the token and the old link dies at once
+- [x] Private sharing by email — `course_permission(course_id, email,
+      role)`. The owner adds and removes emails in the share dialog.
+      Emails are trimmed and lowercased. The owner's own email, invalid
+      addresses, and more than 100 people are rejected; re-adding an
+      existing email is a no-op success. Responses never say whether an
+      email has an account, and access starts working for someone who
+      signs up with that email later. CourseForge sends no email: the
+      owner copies the link and passes it on
+- [x] One server-side authorization gate — `resolveSharedCourseAccess
+      (token, sessionUserId)` in `src/lib/sharing-service.ts` runs on
+      every share page render and every share API call. It returns
+      `invalid` / `sign_in_required` / `forbidden` / `allowed`, reads
+      the viewer's email from the `user` table by session id (never
+      from the request), and caches nothing
+- [x] Share dialog — "Share" in the course page header and "Share…" in
+      each library card's menu. Visibility radios, the link with Copy
+      link (and a select-the-text fallback) and Reset link (inline
+      confirmation), and a People section with Add / Remove. Every
+      change saves immediately, and every outcome goes through one
+      polite live region
+- [x] Shared course page — `/share/[token]`, public, outside the
+      `(app)` group. It has four states (link not valid / private, sign
+      in / access restricted / the course), with a "This is how others
+      see your course" banner for the owner. Questions go through
+      `sanitizeQuestionForClient`, the owner's email never appears (only
+      a display name), and `Referrer-Policy: no-referrer` +
+      `X-Robots-Tag: noindex, nofollow` are set on `/share/*` and
+      `/api/share/*`
+- [x] Learning on a shared course — `CourseViewer` and `ModuleQuiz`
+      take `apiBase` + `persistence` and run against
+      `/api/share/{token}/...`. Anonymous visitors get graded quiz
+      results with nothing saved, and "Mark lesson complete" is
+      local-only. Signed-in viewers' progress goes into `module_progress`
+      under their own user id. The owner never sees viewer progress
+- [x] Add to My Courses — creates a Course Copy: an independent deep
+      copy (course, modules, quizzes, questions) owned by the copier,
+      `source = "shared_copy"`, `source_course_id` → the original,
+      `original_creator_name` (display-name snapshot, never an email),
+      `copied_at`, its own version group at v1, private, no token, no
+      subject/syllabus link, no progress. Duplicates → `409` with
+      `existingCourseId` ("✓ In My Courses" + Open course). The owner
+      gets `400`, anonymous users `401`, and anyone the page wouldn't
+      show the course to `403`
+- [x] Auth flow that returns to the shared course — an anonymous "Add
+      to My Courses" opens a sign-in dialog. Its links carry
+      `callbackUrl=/share/{token}?add=1`; after login or signup the page
+      performs the add once on its own, then drops `?add=1` with
+      `router.replace`. Every callbackUrl (login form, signup form, and
+      middleware's already-signed-in redirect) now goes through
+      `safeCallbackUrl` (`src/lib/safe-redirect.ts`). This also **closes
+      a pre-existing open redirect**: `login-form.tsx` used to push any
+      `callbackUrl` it was given
+- [x] Shared with me — `/shared` lists private-share invites for the
+      signed-in user's email, with their own progress, opening through
+      the share link. "Shared with me" is in the app nav, and the nav
+      now has a scrollable link row below `lg` instead of hiding every
+      link below `sm`
+- [x] Library and course page — library cards show "Shared by link" /
+      "Shared" badges and, for copies, "Added from a shared course · by
+      {name}". Library search also matches the original creator's name.
+      The course page shows "Added from a shared course — Original
+      creator: {name} · Added {date}" for copies and an "Anyone with the
+      link can view" badge for link-shared courses
+- [x] Automated tests — `safe-redirect.test.ts` and
+      `sharing-utils.test.ts` added (see `DEVELOPMENT.md`)
+
+**Verified** — static checks, unit tests, a real migration against
+existing data, and live HTTP checks against a real production build
+(`next build` + `next start`), a real Postgres 16 database, and four
+real clients (owner, viewer, invitee, anonymous):
+
+- `tsc --noEmit` clean, `eslint src` clean, `next build` succeeds,
+  `npm test` **95/95 pass** across 5 test files. New:
+  `safe-redirect` (28 tests, 22 of them parametrised open-redirect
+  rejections) and `sharing-utils` (token format and uniqueness, email
+  parsing/normalisation, display names, the copy-provenance line);
+  `course-library-filter` is now 21
+- Migration `0005` applied to a real Postgres 16 database holding 8
+  existing courses: all 8 defaulted to `visibility = 'private'` with no
+  share token, and `course_permission` was created
+- **63/63 live checks passed** (`verify-m9.mjs`):
+  - **Owner-only settings:** a new course's settings default to
+    private. A non-owner gets `404` on GET and PATCH, and the forged
+    PATCH changed nothing in the database. Anonymous PATCH → `401`.
+    Enabling the link issues a ≥32-character URL-safe token
+  - **Anonymous viewing of a link-shared course:** the page renders
+    the course. Its HTML contains no `correctAnswer`, no quiz
+    explanation text, and no owner email, and does show the owner's
+    display name. `Referrer-Policy: no-referrer` and an `X-Robots-Tag`
+    containing `noindex` are set, and no owner-only controls are
+    present (no regenerate link, no export URL)
+  - **Anonymous actions:** a quiz attempt is graded (`saved: false`).
+    Complete-lesson and Add to My Courses → `401`
+  - **Viewer progress isolation:** a signed-in viewer's quiz attempt
+    returns `saved: true`, and complete-lesson succeeds. Exactly one
+    `module_progress` row exists under the viewer's id, and zero under
+    the owner's. A module id from outside the course → `404`, and a
+    non-uuid module id → `404` (not `500`). The viewer gets `404` on
+    the owner's progress endpoint and on `/courses/{id}`
+  - **Add to My Courses:** `201`. The copy is owned by the viewer, with
+    `source = shared_copy` and `source_course_id` = the original. It
+    has `original_creator_name` = the owner's display name,
+    `copied_at` set, its own version group, `version = 1`, private, no
+    token, no subject or syllabus link, the same module and question
+    counts as the original, and zero progress rows. The original's
+    `title`, `owner_id`, `visibility`, `share_token`, and `updated_at`
+    were identical before and after the copy. Forged `courseId` /
+    `ownerId` fields in the request body were ignored. A second add →
+    `409` with the first copy's id as `existingCourseId`. The owner
+    adding their own course → `400`. The copy appears in the viewer's
+    `/courses`
+  - **Disabling the link:** anonymous visitors no longer see the
+    content, and the share API rejects both them and an uninvited
+    signed-in viewer immediately. The viewer's copy survives
+  - **Private sharing:** adding the owner's own email → `400`, an
+    invalid email → `400`, a non-owner adding people → `404`.
+    `"  INVITEE@…  "` is stored normalised. Anonymous visitors get the
+    sign-in state with no course content. An invitee who **signed up
+    after being invited** can view (no answers in the HTML). An
+    uninvited signed-in user gets the restricted state with no content.
+    `/shared` lists the course for the invitee and not for anyone else.
+    The invitee can Add to My Courses. Removing the invitee revokes
+    access immediately, on both the page and the API
+  - **Reset link:** a new token is issued and the old link is dead. A
+    rotated token and a garbage token get byte-identical `404` bodies,
+    neither of which echoes the token. The new link works
+  - **Deleting the original:** the share link dies, and copies survive
+    with `source_course_id` set to null and `original_creator_name`
+    kept
+  - The login page renders normally with a hostile
+    `callbackUrl=//evil.example.com`
+- **Milestone 8's 34 live checks re-run after Milestone 9: 34/34**
+  (no regression)
+- **Open-redirect fix, checked live:** a signed-in user requesting
+  `/login?callbackUrl=…` with `/share/abc?add=1` gets a `302` there;
+  with `//evil.example.com`, `https://evil.example.com`, or
+  `/\evil.example.com` they get a `302` to `/dashboard`
+
+**Not verified** (know this before relying on it):
+
+- **No in-browser pass.** The client-side `?add=1` auto-add after a
+  real login/signup round trip, Copy link and its select-the-text
+  fallback, the native `<dialog>` returning focus to its opener, the
+  360px layouts, and focus rings were reviewed in code only. The
+  server half of each was checked live (the API calls, the `302`s, the
+  rendered states)
+- **No real concurrency.** The advisory lock that stops two
+  simultaneous Add to My Courses requests from making two copies, and
+  the `FOR UPDATE` row lock behind the 100-person cap, are in place,
+  but nothing exercised them with racing requests
+- **No email delivery**, by design. Nothing sends email, so there was
+  nothing to verify
+
+**Explicitly out of scope / known limitations** (do not treat as
+bugs):
+
+- **Emails aren't verified at signup**, so private access is only as
+  strong as account ownership of that email. Whoever registers an
+  invited email first gets access to everything shared with it. See
+  `SECURITY.md`
+- **No email sending.** The owner shares the link manually; the dialog
+  says so
+- **Only the `viewer` role exists.** The `course_permission_role` enum
+  and the table are ready for more, but nothing else is built
+- **"Add Another Copy"** (brief §61, optional) is not built. A second
+  add returns `409` and the UI offers the existing copy
+- **`listSharedWithMe` lists every course with a permission row for the
+  user's email, whatever its visibility** — so an invite on a course
+  that was later switched to "Anyone with the link" still shows up.
+  Deliberate (the invite still stands and access still works); making
+  it private-only is a one-line `where` change in
+  `src/lib/sharing-service.ts`
+- **Copies of copies credit the first creator.** `original_creator_name`
+  carries the root author's name forward, while `source_course_id`
+  points at the course the copy was actually made from
+- Version numbers can be reused after deleting the newest version
+  (Milestone 8 behaviour, unchanged — see `DATABASE.md`)
+- No rate limiting on the public share endpoints, including anonymous
+  quiz grading (same gap as signup/sign-in — Milestone 11)
+- Milestone 10 still has to replace the syllabus delete/reprocess,
+  subject removal, and AI-config removal `confirm()`/`alert()` calls.
+  Everything new in this milestone uses `Dialog` / `ConfirmDialog` or
+  inline messages
+
+---
 
 ## Milestone 10 — Performance & UX — `[ ]` Not started
 
 Caching, skeleton loaders, responsive polish, accessibility audit,
 animation polish, error/empty states for everything built by then.
-Replace `confirm()`/`alert()` browser dialogs (used in Milestone 2 for
-delete/reprocess confirmations) with proper modals.
+Replace the remaining `confirm()`/`alert()` browser dialogs (syllabus
+delete/reprocess and subject removal from Milestone 2, AI-config
+removal from Milestone 6, the copy-failure `alert()` in
+`subject-prompt-panel.tsx`) with proper modals — `ConfirmDialog` and
+the base `Dialog` (`src/components/ui/dialog.tsx`) are the primitives to
+reuse. Include the manual keyboard/screen-reader pass that Milestones 8
+and 9 didn't do: `ActionMenu`, `ConfirmDialog`, the share dialog, the
+Add to My Courses sign-in dialog, and the new nav strip. Do the
+in-browser checks Milestone 9 left open: the `?add=1` round trip,
+Copy link and its fallback, and the 360px layouts.
 
 ## Milestone 11 — Production Readiness — `[ ]` Not started
 
 Security audit, auth audit, API-key audit, sharing-security audit,
-database audit, edge cases, real test coverage, deployment prep.
+database audit, edge cases, real test coverage, deployment prep. For
+sharing specifically: email verification (private sharing depends on
+it), rate limiting on the public `/share` and `/api/share` endpoints,
+and a real-concurrency test of the copy and add-person locks.
 
 ---
 
 ## Recommended immediate next step
 
-Milestone 8 (Course Management) is next: turn `/courses` from a
-minimal list into real management — search/filter, delete (cascades
-already work correctly at the DB level, just needs a UI + confirm
-dialog matching the Milestone 2 `DeleteSyllabusButton` pattern),
-regeneration (re-run Milestone 5/6 generation against the same
-subject, producing a new course rather than overwriting — "Do not
-automatically destroy the old version" per product brief §42), and
-richer source metadata display (the `course.source` field —
-`imported`/`generated`/`shared_copy` — already exists and is set
-correctly; it just isn't shown anywhere in the UI yet). No new tables
-should be needed — this is UI and query work on top of data that
-already exists and is already correct.
+Milestone 10 (Performance & UX) is next. Start with the items earlier
+milestones explicitly left for it:
+
+- Replace the remaining browser dialogs — syllabus delete/reprocess and
+  subject removal (Milestone 2), AI-config removal (Milestone 6), and
+  the copy-failure `alert()` in `subject-prompt-panel.tsx` — with
+  `ConfirmDialog` or inline messages. The base `Dialog` in
+  `src/components/ui/dialog.tsx` covers anything that isn't a plain
+  confirmation
+- The manual keyboard and screen-reader pass nobody has done yet:
+  `ActionMenu`, `ConfirmDialog`, the share dialog, the Add to My Courses
+  sign-in dialog, and the nav strip below `lg`
+- The in-browser checks Milestone 9 couldn't do from HTTP alone: the
+  `?add=1` auto-add after a real login/signup round trip, Copy link
+  and its fallback, and 360px layouts of `/share/[token]`, `/shared`,
+  and the share dialog
+
+Settle the open reprocess-vs-regeneration question in `DECISIONS.md`
+before or alongside this if it's cheap. It's independent of UX work,
+but it affects every course generated from a reprocessed syllabus.

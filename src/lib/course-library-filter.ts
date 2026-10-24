@@ -30,10 +30,15 @@ export function progressLabel(c: ProgressFields): string {
   return `${progressPercent(c)}% Complete`;
 }
 
-/** Provenance line shared by the library cards and the course page header. */
+/**
+ * Provenance line shared by the library cards and the course page header.
+ * `originalCreatorName` is the display-name snapshot taken when a shared
+ * course was added (never an email).
+ */
 export function courseSourceLabel(
   source: LibraryCourse["source"],
-  syllabusTitle: string | null
+  syllabusTitle: string | null,
+  originalCreatorName?: string | null
 ): string {
   switch (source) {
     case "generated":
@@ -41,12 +46,14 @@ export function courseSourceLabel(
     case "imported":
       return "Imported from JSON";
     case "shared_copy":
-      return "Added from a shared course";
+      return originalCreatorName?.trim()
+        ? `Added from a shared course · by ${originalCreatorName.trim()}`
+        : "Added from a shared course";
   }
 }
 
 export interface LibraryFilters {
-  /** Matches title, subjectCode, description, syllabusTitle (case-insensitive). */
+  /** Matches title, subjectCode, description, syllabusTitle, originalCreatorName (case-insensitive). */
   query: string;
   source: "all" | LibraryCourse["source"];
   status: "all" | ProgressStatus;
@@ -96,7 +103,13 @@ export function filterCourses(courses: LibraryCourse[], f: LibraryFilters): Libr
     if (f.status !== "all" && progressStatus(course) !== f.status) return false;
 
     if (terms.length > 0) {
-      const haystack = [course.title, course.subjectCode, course.description, course.syllabusTitle]
+      const haystack = [
+        course.title,
+        course.subjectCode,
+        course.description,
+        course.syllabusTitle,
+        course.originalCreatorName,
+      ]
         .filter(Boolean)
         .join("\n")
         .toLowerCase();

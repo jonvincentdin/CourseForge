@@ -57,18 +57,31 @@ silently re-litigated.
 
 ## Current project status
 
-**Milestones 1 through 7 are complete and verified live** — not just
+**Milestones 1 through 9 are complete and verified live** — not just
 build-clean, but exercised against a real running Postgres database,
 real HTTP requests throughout, a real call to Anthropic's live API for
 Milestone 6, and for Milestone 7, direct verification (by inspecting
 actual rendered HTML and by submitting a forged score) that quiz
-answers can't be read early and can't be faked. Cross-user data
-isolation is verified on every ownership-checked route, now including
-progress-tracking writes. CourseForge supports the full loop: upload a
-syllabus, select subjects, generate a course either path, then
-actually learn from it with real progress and graded quizzes. See
-`MILESTONES.md` for the precise completion checklist and what's
-explicitly out of scope so far.
+answers can't be read early and can't be faked. Milestone 8 was
+checked against a real production build (`next build` + `next start`)
+with 34/34 live HTTP checks across two real accounts, a real migration
+of pre-existing course rows, and the project's first automated tests
+(`npm test`, vitest, 42/42 passing at the time). Milestone 9 (Course
+Sharing) was checked the same way: 63/63 live HTTP checks against a
+production build with four real clients (owner, viewer, invitee,
+anonymous), Milestone 8's 34 checks re-run with no regression, a real
+migration of 8 existing courses, and `npm test` at 95/95. Cross-user
+data isolation is verified on every ownership-checked route, now
+including course delete, regeneration, Markdown export, share
+settings, and viewer progress. CourseForge supports the full loop:
+upload a syllabus, select subjects, generate a course either path,
+learn from it with real progress and graded quizzes, manage it
+(search/filter the library, regenerate it as a new version that leaves
+the old one untouched, export it as JSON or Markdown, or delete one
+version), then share it. Owners can share by link ("Anyone with the
+link") or privately by email. Viewers learn with their own progress
+and can "Add to My Courses" to get an independent copy. See
+`MILESTONES.md` for the precise completion checklist, what wasn't
+verified, and what's explicitly out of scope.
 
-Course management (search, delete, regeneration on `/courses`) and
-sharing are not built yet — that's Milestones 8 and 9.
+Milestone 10 (Performance & UX) is next.

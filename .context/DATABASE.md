@@ -68,7 +68,7 @@ this satisfies the brief without a more complex version-graph model.
 | auto_detected | boolean, default true | flips to `false` the moment a human edits or manually adds a row — lets the UI distinguish "CourseForge guessed this" from "a person confirmed/wrote this" |
 | created_at / updated_at | timestamp | |
 
-### `course` (Milestone 4)
+### `course` (Milestone 4, versioning columns added in Milestone 8, sharing columns in Milestone 9)
 | Column | Type | Notes |
 |---|---|---|
 | id | uuid, PK | |
@@ -78,8 +78,103 @@ this satisfies the brief without a more complex version-graph model.
 | title, subject_code, academic_year, semester, description | | denormalized copies at creation time, not live references |
 | learning_objectives | jsonb (`string[]`) | |
 | schema_version | text, default `"1.0"` | matches `src/lib/course-schema.ts`'s `CURRENT_SCHEMA_VERSION` at import time |
-| source | enum: `imported` / `generated` / `shared_copy` | only `imported` is reachable today — `generated` is for Milestone 6, `shared_copy` for Milestone 9 |
+| source | enum: `imported` / `generated` / `shared_copy` | `imported` (pasted JSON, including external-AI regenerations), `generated` (direct AI, including direct regenerations), and since Milestone 9 `shared_copy` (written only by Add to My Courses — a Course Copy) |
+| version_group_id | uuid, **not null**, **not an FK** (Milestone 8) | every version of "the same course" shares it. A brand-new course's group id is its own `id`. Deliberately not a foreign key — see Versioning below |
+| version | integer, not null, default 1 (Milestone 8) | `max(version in group) + 1` for each regeneration. Deleting an older version never frees its number; deleting the newest one does (see Versioning below) |
+| visibility | enum `course_visibility`: `private` / `link`, not null, default `private` (Milestone 9) | `private`: the owner plus the emails in `course_permission`. `link`: anyone holding the share token. Re-checked on every share request |
+| share_token | text, nullable, **unique** (Milestone 9) | 32 base64url chars (24 CSPRNG bytes). Null until the owner first saves share settings; kept when switching to `private`; replaced by "Reset link"; always null on a Course Copy. Stored plain — see `SHARING.md` / `DECISIONS.md` |
+| source_course_id | uuid, nullable, FK → `course.id`, **`set null`** on delete (Milestone 9) | on a Course Copy: the course it was copied from. Null on everything else, and on a copy whose original was deleted |
+| original_creator_name | text, nullable (Milestone 9) | display-name snapshot taken at copy time (never an email; "A CourseForge student" when the owner had no name). A copy of a copy carries the root author's name forward |
+| copied_at | timestamp, nullable (Milestone 9) | when the copy was made |
 | created_at / updated_at | timestamp | |
+
+**Table constraints:** `unique(version_group_id, version)`
+(`course_version_group_id_version_unique`) and a btree index
+`course_owner_id_idx` on `owner_id` (Milestone 8); `unique(share_token)`
+(`course_share_token_unique`) and a btree index
+`course_source_course_id_idx` on `source_course_id` (Milestone 9).
+
+**Sharing and Course Copies (Milestone 9).** A Course Copy is an
+ordinary `course` row (plus its own modules, quizzes, and questions)
+owned by the copier: `source = 'shared_copy'`, `source_course_id` →
+the original, `original_creator_name`, `copied_at`, its own version
+group (`version_group_id = id`, `version = 1`), `visibility =
+'private'`, no `share_token`, and `subject_id`/`syllabus_id` null
+(they'd point at another user's rows). No `module_progress` is
+copied. `source_course_id` is `set null`, not cascade, so a copy
+outlives its original. The duplicate check ("does this user already
+have a copy of that original?") filters on `source_course_id` +
+`owner_id`, which `course_source_course_id_idx` serves. See
+`SHARING.md`.
+
+Migration `0005_late_exodus.sql` needed **no hand-edit**, and its
+header comment says why: `visibility` is `NOT NULL` with a constant
+default (Postgres fills existing rows), every other new column is
+nullable, the `share_token` unique constraint is satisfied by all-NULL
+values, and `course_permission` is a new, empty table. Verified
+against a real Postgres 16 database holding 8 existing courses: all
+became `private` with no token, and `course_permission` was created.
+
+**Versioning (Milestone 8).** Regeneration never modifies or deletes
+an existing course. It inserts a brand-new `course` row (with its own
+modules, quizzes, and questions) into the source course's
+`version_group_id`, with `version = max(version in group) + 1`. That
+number is computed inside the insert transaction
+(`persistImportedCourse` in `src/lib/course-service.ts`) after taking
+`pg_advisory_xact_lock(hashtext(version_group_id))`, so two
+regenerations of the same course serialise instead of racing. The
+unique constraint above is the backstop if they ever did race (not
+exercised under real concurrency yet — see `MILESTONES.md`).
+
+`version_group_id` is not a foreign key because there's no row it
+could safely point at: any version, including the root (whose `id`
+equals the group id), can be deleted, and every other version in the
+group must survive that. Deleting a version doesn't renumber the
+others, and the next regeneration still takes max + 1 of what's left —
+verified live: with v1 deleted and v2 remaining, the next regeneration
+became v3, so a deleted *older* number is never handed out again. Note
+the one case that does reuse a number: deleting the *newest* version
+lowers the max, so the next regeneration gets that number back (delete
+v3 of v1–v3 → the next one is v3 again). That follows from max + 1 and
+wasn't treated as a problem, but don't describe version numbers as
+globally unique over time. The `coalesce(max, 0)` in the code only
+matters if every version in the group is deleted while a regeneration
+is in flight; the new row then becomes v1 of the surviving group id.
+
+Each version is a fully independent course: its own modules, its own
+`module_progress` rows. Progress does not carry over from v1 to v2.
+See `DECISIONS.md` for why this model was picked over a parent
+pointer.
+
+Migration `0004_modern_colossus.sql` is **hand-edited**: drizzle-kit
+generated `ADD COLUMN "version_group_id" uuid NOT NULL`, which fails on
+any database that already has course rows. The committed version adds
+the column nullable, backfills `version_group_id = id` (every existing
+course becomes v1 of its own group), then sets `NOT NULL`. Verified
+against a real Postgres 16 database holding two pre-Milestone-8 course
+rows: both backfilled correctly, and the constraint and index were
+present afterwards.
+
+### `course_permission` (Milestone 9)
+| Column | Type | Notes |
+|---|---|---|
+| id | uuid, PK | |
+| course_id | uuid, FK → `course.id`, cascade delete | |
+| email | text, not null | trimmed + lowercased, the same normalisation signup applies to `user.email`. **Not** an FK to `user`: access is granted to an email so it also covers people who haven't signed up yet |
+| role | enum `course_permission_role`: `viewer`, not null, default `viewer` | the only role today; the enum leaves room for `editor` without a table change |
+| created_at | timestamp, default now | shown as "Shared {date}" on `/shared`; orders the people list |
+
+**Constraints:** `unique(course_id, email)`
+(`course_permission_course_id_email_unique`) and a btree index
+`course_permission_email_idx` on `email` ("Shared with me" looks
+permissions up by the viewer's email).
+
+The access check reads the signed-in user's email from `user` by
+session id and looks for a row with that email for the course. Removing
+a row revokes access on the next request. At most 100 rows per course,
+enforced in `addPerson` under a `FOR UPDATE` lock on the course row
+(application rule, not a DB constraint; not tested under real
+concurrency).
 
 ### `course_module` (Milestone 4)
 | Column | Type | Notes |
@@ -133,21 +228,24 @@ this satisfies the brief without a more complex version-graph model.
 | updated_at | timestamp | |
 
 **Unique constraint on `(module_id, user_id)`** — deliberately keyed by
-user, not just module, even though only the course owner can access
-their own course today (no sharing/viewers until Milestone 9). This
-means Milestone 9's "viewer progress must be isolated from the
-owner's" requirement (product brief §64) needs no schema change later,
-only a new caller — each viewer's row is naturally separate by
-`user_id`. Verified live: a second real account's attempts to write
-progress against the first account's module were correctly rejected
-(`404`) before ever reaching this table, and zero rows were created
-for them.
+user, not just module, from Milestone 7 on. That paid off in Milestone
+9: viewer progress isolation (product brief §64) needed no schema
+change, only new callers (`submitSharedQuizAttempt`,
+`markSharedLessonComplete`) that write under the *viewer's* user id.
+Verified live: a shared-course viewer's quiz attempt and lesson
+completion produced exactly one row under the viewer's id and zero
+under the owner's. Owner endpoints still reject other accounts
+(`404`, zero rows), as verified in Milestone 7 and again in Milestone 9.
+Anonymous viewers never write here.
 
 ## Relationships
 
 - `account.user_id` / `session.user_id` / `syllabus.user_id` / `course.owner_id` / `ai_provider_config.user_id` / `module_progress.user_id` → `user.id`, cascade delete
 - `subject.syllabus_id` → `syllabus.id`, cascade delete (verified: deleting a syllabus removes its subjects)
-- `course.subject_id` / `course.syllabus_id` → `subject.id` / `syllabus.id`, **`set null`** on delete — a course is a snapshot, not a live reference; deleting its source syllabus must never delete or orphan the course (see `DECISIONS.md`)
+- `course.subject_id` / `course.syllabus_id` → `subject.id` / `syllabus.id`, **`set null`** on delete — a course is a snapshot, not a live reference; deleting its source syllabus must never delete or orphan the course (see `DECISIONS.md`). Side effect worth knowing: reprocessing a syllabus deletes and recreates its subjects, which nulls `course.subject_id` on every course generated from it, and those courses can then no longer be regenerated (open question in `DECISIONS.md`)
+- `course.version_group_id` — **not** a foreign key (Milestone 8); a grouping value shared by every version of a course, see Versioning above
+- `course.source_course_id` → `course.id` (self-reference), **`set null`** on delete (Milestone 9) — deleting an original leaves its Course Copies intact, just unlinked (verified live)
+- `course_permission.course_id` → `course.id`, cascade delete (Milestone 9) — deleting a course removes its people list; deleting a user does **not** remove permission rows for their email (there's no FK to `user`)
 - `course_module.course_id` → `course.id`, cascade delete
 - `quiz.module_id` → `course_module.id`, cascade delete, unique (one quiz per module)
 - `quiz_question.quiz_id` → `quiz.id`, cascade delete
@@ -157,10 +255,31 @@ for them.
 
 `user.email`, `quiz.module_id`, and `ai_provider_config.user_id` each
 have a unique constraint (and therefore an index). `module_progress`
-has a unique constraint on `(module_id, user_id)`. No other indexes
-yet — no query pattern has needed one at this scale. Revisit
-`subject.syllabus_id`, `syllabus.user_id`, and `course.owner_id` if
-listing pages get slow with real data volume.
+has a unique constraint on `(module_id, user_id)`. Milestone 8 added
+two on `course`:
+
+- `course_owner_id_idx` (btree on `owner_id`) — the library query and
+  every course ownership check filter on it
+- `unique(version_group_id, version)` — the integrity backstop for
+  version numbering. Its index leads with `version_group_id`, so it's
+  also available to the per-group `max(version)` and
+  `getCourseVersions` lookups
+
+Milestone 9 added:
+
+- `course_share_token_unique` on `course.share_token` — every share
+  request looks the course up by token equality
+- `course_source_course_id_idx` on `course.source_course_id` — the
+  duplicate-copy check and the `set null` cascade when an original is
+  deleted
+- `course_permission_course_id_email_unique` — one row per (course,
+  email); also serves "who has access to this course"
+- `course_permission_email_idx` on `course_permission.email` — "Shared
+  with me"
+
+No other indexes yet. Revisit `subject.syllabus_id`,
+`syllabus.user_id`, and `course_module.course_id` if listing pages get
+slow with real data volume.
 
 ## Storage
 
@@ -171,9 +290,21 @@ progress data both live entirely in Postgres — no separate file
 storage needed for either. Encrypted API keys also live entirely in
 Postgres — no external secrets manager yet (see `DECISIONS.md`).
 
-## Not yet modeled (owned by later milestones — do not invent these tables early)
+## Enums
 
-- CourseShare / CoursePermission / CourseInvitation (Milestone 9)
+`syllabus_status`, `semester`, `course_source` (`imported` /
+`generated` / `shared_copy`), and `quiz_question_type` from earlier
+milestones. Milestone 9 added `course_visibility` (`private` / `link`)
+and `course_permission_role` (`viewer`).
+
+## Not modeled (deliberately)
+
+- **No invitation table.** Private sharing grants access to an email in
+  `course_permission`, so someone without an account is covered with no
+  separate pending-invitation state. There's no email sending either.
+  See `DECISIONS.md` (2026-10-25)
+- **No separate share table.** Visibility and the token live on
+  `course`, because there's exactly one share URL per course
 
 ## Known gaps
 
@@ -183,7 +314,13 @@ Postgres — no external secrets manager yet (see `DECISIONS.md`).
   needs it currently sets it explicitly in application code. Fine for
   now; would be worth a DB-level `onUpdate` if more write paths appear
   without remembering to set it.
-- No migration files have been generated yet (`npm run db:generate`) —
-  Milestone 1 and 2 schema were both applied via `drizzle-kit push`
-  directly during verification. Generate real migration files before
-  this is used anywhere beyond a single developer's local database.
+- Migrations: there are now six committed migration files
+  (`0000`–`0005`) and `npm run db:migrate` is the supported way to set
+  up a database. `0004` was hand-edited after generation (see the
+  `course` Versioning notes above) — if you ever regenerate it, redo
+  the nullable → backfill → `NOT NULL` edit, or it will fail on any
+  database with existing courses. `0005` (Milestone 9) is exactly as
+  generated; it was reviewed for existing rows and needed no edit.
+- `course_permission.email` isn't tied to an account, and emails
+  aren't verified at signup. Whoever registers an invited email first
+  gets that access. See `SECURITY.md`.

@@ -8,7 +8,7 @@ to, then pastes the JSON it returns back into CourseForge.
 
 ### Prompt generation (`src/lib/prompt-generator.ts`)
 
-`buildCoursePrompt({ subject, syllabus, depth, includeLearningObjectives })`
+`buildCoursePrompt({ subject, syllabus, depth, includeLearningObjectives, focus? })`
 is a pure function (no server-only APIs — it runs client-side, so the
 prompt updates instantly when the user changes depth/objectives
 without a round trip) that produces a single grounded prompt
@@ -148,6 +148,11 @@ confirmation and actually deletes the row (verified: `DELETE
 
 ### Course generation (`POST /api/courses/generate`)
 
+*Since Milestone 8 the pipeline below lives in
+`src/lib/course-generation-service.ts` (`generateCourseWithAI`); the
+route is a thin HTTP wrapper with an unchanged request/response shape.
+See "Regeneration" below.*
+
 Re-derives subject/syllabus ownership server-side (never trusts the
 client's ids alone — same pattern as every other milestone), builds
 the exact same prompt Milestone 5's external flow shows the user
@@ -168,7 +173,10 @@ enough to be worth handling.
 ### Progress UI
 
 `src/components/generate/direct-generate-panel.tsx` shows the
-brief's staged checklist (§79: "Reading syllabus" → ... → "Validating
+brief's staged checklist (since Milestone 8 the checklist and its
+timer live in `src/components/generate/generation-progress.tsx` —
+`GENERATION_STAGES`, `useGenerationStages`, `GenerationProgress` — so
+the regenerate page shares it; the panel's behaviour is unchanged) (§79: "Reading syllabus" → ... → "Validating
 course"). **This is honestly a client-side simulated progression, not
 real per-stage signals from the server** — a single AI completion call
 happens in one request/response; there's no true mid-flight progress
@@ -192,9 +200,137 @@ stages later.
   errors (a 429 surfaces immediately as a user-facing error rather
   than auto-retrying).
 
-## Not yet built (owned by later milestones)
+## Regeneration — Milestone 8 — built, verified live (except a successful real generation)
 
-- Interactive quiz-taking, scoring, module navigation, progress
-  tracking — Milestone 7
-- Regeneration, versioning, delete, search/filter on `/courses` —
-  Milestone 8
+Product brief §42: rebuild an existing course from its syllabus with
+different settings, **without** destroying the old one. Every
+regeneration creates a new course row in the old one's version group
+(`version = max + 1`) — see `DATABASE.md`'s `course` Versioning notes.
+
+### Shared pipeline (`src/lib/course-generation-service.ts`)
+
+`generateCourseWithAI({ userId, subjectId, syllabusId, depth,
+includeLearningObjectives, focus?, regenerateFromCourseId? })` is the
+Milestone 6 route body, extracted so first-time generation and
+regeneration run the same code. It returns either `{ ok: true, course }`
+or `{ ok: false, status, error, errors? }` with `status` one of
+`400 | 404 | 409 | 422 | 502`. Order of operations, unchanged from
+Milestone 6:
+
+1. Resolve an owned subject + syllabus. From the ids for first-time
+   generation; from the owned source course (via
+   `getRegenerationSource`) when `regenerateFromCourseId` is set, in
+   which case the passed `subjectId`/`syllabusId` are ignored. Not
+   owned → `404`; source subject/syllabus gone → `409`. This happens
+   **before** the AI config is looked up, so an unauthorised request
+   never reveals whether a config exists and never triggers a provider
+   call.
+2. AI config (`400` "No AI provider configured…" if none) → provider
+   lookup (`400` if no longer supported).
+3. `buildCoursePrompt` (with `focus`) → `provider.generateCompletion`.
+   A provider error becomes `502` with the provider's own non-leaking
+   message.
+4. `importCourseFromJson` with `source: "generated"` and
+   `regenerateFromCourseId` passed through. A validation failure →
+   `422` "The AI's response didn't pass validation." plus the specific
+   errors.
+
+### Focus option (`CourseFocus` in `src/lib/prompt-generator.ts`)
+
+```ts
+type CourseFocus =
+  | { kind: "full" }                    // default
+  | { kind: "topics"; topics: string }  // trimmed, 1–500 chars
+  | { kind: "exam" };
+```
+
+- `full` (the default when `focus` is omitted) adds no section at all
+  (`buildFocusSection` returns `null`), so the prompt is the one that
+  existed before Milestone 8 and older callers are unaffected.
+  Unit-tested that omitting `focus` and passing `full` give identical
+  output with no `## Focus` section.
+- `topics` adds a `## Focus` section after the course requirements:
+  concentrate the modules on the student's topics, stay within the
+  subject and grounded in the syllabus, cover the closest syllabus
+  material if a topic isn't part of the subject, and don't invent
+  requirements. The topic text is user input, so it's fenced off and
+  framed as the student's *request*, never as instructions that
+  override other requirements or the output format. Runs of three or
+  more backticks in it are replaced so it can't close the fence early.
+- `exam` adds a `## Focus: exam preparation` section: concise review
+  lessons (key definitions, formulas/rules, core ideas), a "Common
+  pitfalls" list per lesson, and more and harder questions — 5–8 per
+  module, explicitly overriding the default question-count guidance.
+- `courseFocusSchema` (zod) lives in the same isomorphic module, so the
+  API routes and the regenerate form's character counter share one
+  definition. Oversized topics (501 chars) → `400`, verified live.
+
+`POST /api/courses/generate` accepts an optional `focus` too, but the
+first-time generation UI (`/generate/[id]/prompt`) doesn't offer it —
+only the regenerate page does.
+
+### Two ways to regenerate (`/courses/[id]/regenerate`)
+
+The page shows the source ("{syllabus title} · {code — subject
+name}"), Depth, Focus, a Learning objectives toggle (pre-set from
+whether the current version has objectives), and the reassurance line
+"Your current version (vN) stays in your library — this creates
+vN+1." (worded differently when regenerating from an older version:
+the new number is always max + 1, not this version + 1).
+
+- **Direct AI** — enabled only when `getAiConfigStatus` says a
+  provider is configured; otherwise shown disabled with a link to
+  Settings. "Generate new version" → `POST
+  /api/courses/[id]/regenerate` (body: `depth`,
+  `includeLearningObjectives`, `focus` — never subject/syllabus ids)
+  with the shared simulated-progress checklist. Success → "Version N
+  ready." + "Start learning →"; failure → the message, any validation
+  errors, and "Try again".
+- **External AI** — the same `buildCoursePrompt` output, recomputed
+  live client-side, with a Copy button (copy failure selects the text
+  and shows an inline hint — no `alert()`), then `ImportCourseForm`
+  with `regenerateFromCourseId` set, which posts to `POST
+  /api/courses/import`.
+
+If the course has no linked subject/syllabus any more, the page shows
+an explanatory card (why, plus links back to the course and to
+`/generate`) instead of the form, and the API returns `409`.
+
+### Verified live
+
+Against a real production build and a real Postgres database:
+regeneration via the import path produced v2 in the same group with
+server-derived provenance (bogus client ids ignored, v1 untouched);
+another account's attempt → `422` "Course not found." with zero rows
+created; direct regenerate with no AI config → `400`; with a saved
+invalid Anthropic key → a real `502` from Anthropic's live API
+("Anthropic rejected the API key…"), zero rows created, the key absent
+from the response; after deleting the source syllabus → `409` and the
+explanatory page. Full list in `MILESTONES.md`.
+
+### Known limitations (do not treat as bugs)
+
+- **No successful real AI regeneration has been run.** No valid
+  provider key was available, so the `topics`/`exam` focus sections
+  are verified only by unit tests (`src/lib/prompt-generator.test.ts`),
+  not by a real model's output. Whether a model actually honours them
+  well is unknown.
+- Concurrent regenerations of the same course are serialised by an
+  advisory lock (see `DATABASE.md`) but haven't been tested under real
+  concurrency.
+- Reprocessing a syllabus nulls `course.subject_id` on courses
+  generated from it, so they can't be regenerated even though the
+  syllabus still exists — open question in `DECISIONS.md`.
+- The focus text gets the same "delimit and frame as a request"
+  treatment `SECURITY.md` recommends for syllabus text, but like the
+  syllabus text it can't make prompt injection impossible — the
+  schema validation on every result is still the real guarantee.
+
+## Sharing and generation (Milestone 9)
+
+Sharing (Milestone 9) touches the generation pipeline nowhere. Add to
+My Courses copies stored rows directly (see `SHARING.md`), with no AI
+call and no re-import. A Course Copy has no subject/syllabus link, so
+it can't be regenerated: the course page shows the "can't regenerate"
+state, and `POST /api/courses/[id]/regenerate` returns `409` like any
+unlinked course. Sharing settings are never part of a prompt.

@@ -10,6 +10,7 @@ import {
   jsonb,
   unique,
   index,
+  type AnyPgColumn,
 } from "drizzle-orm/pg-core";
 import type { AdapterAccountType } from "@auth/core/adapters";
 
@@ -20,10 +21,9 @@ import type { AdapterAccountType } from "@auth/core/adapters";
  * Milestone 6 scope: per-user AI provider configuration.
  * Milestone 7 scope: per-module progress/quiz-attempt tracking (added
  * below).
- * Milestone 8 scope: course versioning columns on `course`. Sharing tables are introduced in Milestone 9 (see
- * .context/DATABASE.md and .context/MILESTONES.md) — intentionally
- * NOT stubbed here so the schema never implies functionality that
- * doesn't exist yet.
+ * Milestone 8 scope: course versioning columns on `course`.
+ * Milestone 9 scope: sharing columns on `course` (visibility, share
+ * token, copy provenance) and the `course_permission` table.
  */
 
 export const users = pgTable("user", {
@@ -163,6 +163,15 @@ export const courseSourceEnum = pgEnum("course_source", [
   "shared_copy",
 ]);
 
+/**
+ * Milestone 9. "private" (default): only the owner and the emails in
+ * course_permission. "link": anyone holding the share token. Switching
+ * back to "private" keeps the token (re-enabling restores the same
+ * link) — every share request re-checks this column, so the public
+ * link stops working on the very next request.
+ */
+export const courseVisibilityEnum = pgEnum("course_visibility", ["private", "link"]);
+
 export const quizQuestionType = pgEnum("quiz_question_type", [
   "multiple_choice",
   "multiple_select",
@@ -210,6 +219,20 @@ export const courses = pgTable(
     source: courseSourceEnum("source").notNull().default("imported"),
     versionGroupId: uuid("version_group_id").notNull(),
     version: integer("version").notNull().default(1),
+    // Milestone 9 — sharing. The token is a bearer capability (like the
+    // URL it lives in): 192 random bits, created lazily the first time
+    // the owner saves share settings, rotated by "Reset link". Stored
+    // plain because it's looked up by equality on a unique index.
+    visibility: courseVisibilityEnum("visibility").notNull().default("private"),
+    shareToken: text("share_token").unique(),
+    // Milestone 9 — Course Copy provenance (source = "shared_copy").
+    // `set null`: a copy is independent and must survive the original
+    // being deleted. The creator name is a snapshot (never an email).
+    sourceCourseId: uuid("source_course_id").references((): AnyPgColumn => courses.id, {
+      onDelete: "set null",
+    }),
+    originalCreatorName: text("original_creator_name"),
+    copiedAt: timestamp("copied_at"),
     createdAt: timestamp("created_at").defaultNow().notNull(),
     updatedAt: timestamp("updated_at").defaultNow().notNull(),
   },
@@ -220,6 +243,9 @@ export const courses = pgTable(
     unique().on(table.versionGroupId, table.version),
     // The library and every ownership check filter on owner_id.
     index("course_owner_id_idx").on(table.ownerId),
+    // Duplicate-copy check (findExistingCopy) and the `set null` cascade
+    // when an original is deleted.
+    index("course_source_course_id_idx").on(table.sourceCourseId),
   ]
 );
 
@@ -270,6 +296,43 @@ export const quizQuestions = pgTable("quiz_question", {
   explanation: text("explanation"),
   sortOrder: integer("sort_order").notNull().default(0),
 });
+
+// ---------------------------------------------------------------------------
+// Milestone 9 — Course Sharing
+// ---------------------------------------------------------------------------
+
+/** Only "viewer" today; the enum leaves room for "editor" later without a table change. */
+export const coursePermissionRoleEnum = pgEnum("course_permission_role", ["viewer"]);
+
+/**
+ * Private-course access, granted by email rather than user id so it
+ * also covers people who haven't signed up yet (they get access as
+ * soon as an account with that email exists). The access check reads
+ * the signed-in user's email from `user` by session id — never from
+ * the request. `email` is stored trimmed + lowercased, matching how
+ * signup stores `user.email`. Deleting a row revokes access on the
+ * next request; deleting the course cascades.
+ */
+export const coursePermissions = pgTable(
+  "course_permission",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    courseId: uuid("course_id")
+      .notNull()
+      .references(() => courses.id, { onDelete: "cascade" }),
+    email: text("email").notNull(),
+    role: coursePermissionRoleEnum("role").notNull().default("viewer"),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+  },
+  (table) => [
+    unique().on(table.courseId, table.email),
+    // "Shared with me" looks permissions up by the viewer's email.
+    index("course_permission_email_idx").on(table.email),
+  ]
+);
+
+export type CoursePermission = typeof coursePermissions.$inferSelect;
+export type NewCoursePermission = typeof coursePermissions.$inferInsert;
 
 export type Course = typeof courses.$inferSelect;
 export type NewCourse = typeof courses.$inferInsert;

@@ -1,4 +1,4 @@
-import { and, eq, inArray } from "drizzle-orm";
+import { and, asc, eq, inArray } from "drizzle-orm";
 import { db } from "@/db";
 import {
   courseModules,
@@ -10,6 +10,7 @@ import {
 } from "@/db/schema";
 import { getOwnedCourse } from "@/lib/course-service";
 import { gradeQuiz, type GradedQuestion } from "@/lib/quiz-grading";
+import { resolveSharedCourseAccess } from "@/lib/sharing-service";
 
 export async function getProgressForCourse(
   courseId: string,
@@ -169,4 +170,128 @@ export async function submitQuizAttempt(
     });
 
   return { ok: true, results, score, total };
+}
+
+// ---------------------------------------------------------------------------
+// Milestone 9 — progress for shared-course viewers
+// ---------------------------------------------------------------------------
+
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * Re-runs the share gate on every call, then confirms the module
+ * belongs to the course that gate resolved. Anything short of
+ * "allowed + module in this course" (bad token, revoked access,
+ * someone else's module id, a non-uuid id) is the same "not found".
+ * The viewer id returned is the gate's DB-verified one, never the
+ * caller's raw value.
+ */
+async function resolveSharedModule(
+  token: string,
+  moduleId: string,
+  viewerUserId: string | null
+): Promise<{ moduleId: string; viewerUserId: string | null } | null> {
+  if (!UUID_PATTERN.test(moduleId)) return null;
+
+  const access = await resolveSharedCourseAccess(token, viewerUserId);
+  if (access.status !== "allowed") return null;
+
+  const [mod] = await db
+    .select({ id: courseModules.id })
+    .from(courseModules)
+    .where(and(eq(courseModules.id, moduleId), eq(courseModules.courseId, access.course.id)))
+    .limit(1);
+  if (!mod) return null;
+
+  return { moduleId: mod.id, viewerUserId: access.viewerUserId };
+}
+
+export type SubmitSharedQuizResult =
+  | { ok: true; results: GradedQuestion[]; score: number; total: number; saved: boolean }
+  | { ok: false; error: string };
+
+/**
+ * Grades server-side exactly like submitQuizAttempt. Persists only for
+ * a signed-in viewer, keyed by *their* user id — so it lands in their
+ * own progress row and never touches the owner's. Anonymous viewers
+ * get their results back with `saved: false`.
+ */
+export async function submitSharedQuizAttempt(
+  token: string,
+  moduleId: string,
+  viewerUserId: string | null,
+  answers: Record<string, unknown>
+): Promise<SubmitSharedQuizResult> {
+  const target = await resolveSharedModule(token, moduleId, viewerUserId);
+  if (!target) return { ok: false, error: "Module not found." };
+
+  const [quiz] = await db
+    .select()
+    .from(quizzes)
+    .where(eq(quizzes.moduleId, target.moduleId))
+    .limit(1);
+  if (!quiz) return { ok: false, error: "Module not found." };
+
+  const questions = await db
+    .select()
+    .from(quizQuestions)
+    .where(eq(quizQuestions.quizId, quiz.id))
+    .orderBy(asc(quizQuestions.sortOrder));
+
+  const { results, score, total } = gradeQuiz(questions, answers);
+
+  if (!target.viewerUserId) {
+    return { ok: true, results, score, total, saved: false };
+  }
+
+  // Shared viewers are other people writing into this database, so
+  // only the answers to this quiz's actual questions are stored —
+  // arbitrary extra keys in the request body are dropped.
+  const storedAnswers: Record<string, unknown> = {};
+  for (const question of questions) {
+    if (Object.hasOwn(answers, question.id)) storedAnswers[question.id] = answers[question.id];
+  }
+
+  await db
+    .insert(moduleProgress)
+    .values({
+      moduleId: target.moduleId,
+      userId: target.viewerUserId,
+      quizScore: score,
+      quizTotal: total,
+      quizAnswers: storedAnswers,
+      quizCompletedAt: new Date(),
+    })
+    .onConflictDoUpdate({
+      target: [moduleProgress.moduleId, moduleProgress.userId],
+      set: {
+        quizScore: score,
+        quizTotal: total,
+        quizAnswers: storedAnswers,
+        quizCompletedAt: new Date(),
+        updatedAt: new Date(),
+      },
+    });
+
+  return { ok: true, results, score, total, saved: true };
+}
+
+/** Signed-in viewers only (the route answers 401 for anonymous before calling this). */
+export async function markSharedLessonComplete(
+  token: string,
+  moduleId: string,
+  viewerUserId: string
+): Promise<{ ok: boolean }> {
+  const target = await resolveSharedModule(token, moduleId, viewerUserId);
+  if (!target?.viewerUserId) return { ok: false };
+
+  await db
+    .insert(moduleProgress)
+    .values({ moduleId: target.moduleId, userId: target.viewerUserId, lessonCompleted: true })
+    .onConflictDoUpdate({
+      target: [moduleProgress.moduleId, moduleProgress.userId],
+      set: { lessonCompleted: true, updatedAt: new Date() },
+    });
+
+  return { ok: true };
 }

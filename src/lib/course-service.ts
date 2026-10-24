@@ -4,6 +4,7 @@ import { db } from "@/db";
 import {
   courses,
   courseModules,
+  coursePermissions,
   moduleProgress,
   quizzes,
   quizQuestions,
@@ -23,6 +24,12 @@ import {
   type QuestionImport,
 } from "@/lib/course-schema";
 import { getOwnedSyllabus } from "@/lib/syllabus-service";
+import type { ShareVisibility } from "@/lib/sharing-service";
+
+// Re-exported so server components can build the copy-provenance line
+// from course-service alone; client components should import it from
+// @/lib/sharing-utils directly (this module pulls in the database).
+export { copySourceLabel } from "@/lib/sharing-utils";
 
 export type ImportCourseResult =
   | { ok: true; course: Course }
@@ -180,7 +187,7 @@ async function persistImportedCourse(
     // A brand-new course roots its own group: group id == its own id.
     // The id is generated here rather than by the DB default so both
     // columns can be written in the same insert.
-    const id = randomUUID();
+    const id: string = randomUUID();
     let versionGroupId = id;
     let version = 1;
 
@@ -368,10 +375,16 @@ export interface LibraryCourse {
   totalModules: number;
   /** Same definition as progress-service: lesson done AND quiz attempted. */
   completedModules: number;
+  /** Milestone 9: snapshot of the original creator's display name; non-null only for shared_copy courses. */
+  originalCreatorName: string | null;
+  /** Milestone 9: "link" = anyone with the link can view. */
+  visibility: ShareVisibility;
+  /** Milestone 9: how many emails this course is privately shared with (owner-only data). */
+  sharedPeopleCount: number;
 }
 
 /**
- * Everything the /courses library needs, in exactly two queries
+ * Everything the /courses library needs, in exactly three queries
  * regardless of library size (run in parallel):
  *
  * 1. Courses with their provenance and version-group stats. The
@@ -387,9 +400,11 @@ export interface LibraryCourse {
  *    see .context/DECISIONS.md) — reimplemented as one GROUP BY rather
  *    than imported, because progress-service already imports this
  *    module and an import cycle isn't worth it for one query.
+ * 3. (Milestone 9) Per-course count of people it's privately shared
+ *    with, for the library's "Shared" indicator.
  */
 export async function listCourseLibrary(userId: string): Promise<LibraryCourse[]> {
-  const [rows, progressRows] = await Promise.all([
+  const [rows, progressRows, peopleRows] = await Promise.all([
     db
       .select({
         id: courses.id,
@@ -402,6 +417,8 @@ export async function listCourseLibrary(userId: string): Promise<LibraryCourse[]
         version: courses.version,
         versionGroupId: courses.versionGroupId,
         createdAt: courses.createdAt,
+        originalCreatorName: courses.originalCreatorName,
+        visibility: courses.visibility,
         syllabusId: syllabi.id,
         syllabusTitle: syllabi.title,
         subjectId: subjects.id,
@@ -438,9 +455,19 @@ export async function listCourseLibrary(userId: string): Promise<LibraryCourse[]
       )
       .where(eq(courses.ownerId, userId))
       .groupBy(courseModules.courseId),
+    db
+      .select({
+        courseId: coursePermissions.courseId,
+        count: sql<number>`count(*)`.mapWith(Number),
+      })
+      .from(coursePermissions)
+      .innerJoin(courses, eq(coursePermissions.courseId, courses.id))
+      .where(eq(courses.ownerId, userId))
+      .groupBy(coursePermissions.courseId),
   ]);
 
   const progressByCourse = new Map(progressRows.map((row) => [row.courseId, row]));
+  const peopleByCourse = new Map(peopleRows.map((row) => [row.courseId, row.count]));
 
   return rows.map((row) => {
     const progress = progressByCourse.get(row.id);
@@ -462,6 +489,9 @@ export async function listCourseLibrary(userId: string): Promise<LibraryCourse[]
       createdAt: row.createdAt.toISOString(),
       totalModules: progress?.totalModules ?? 0,
       completedModules: progress?.completedModules ?? 0,
+      originalCreatorName: row.originalCreatorName,
+      visibility: row.visibility,
+      sharedPeopleCount: peopleByCourse.get(row.id) ?? 0,
     };
   });
 }

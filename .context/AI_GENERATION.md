@@ -318,9 +318,9 @@ explanatory page. Full list in `MILESTONES.md`.
 - Concurrent regenerations of the same course are serialised by an
   advisory lock (see `DATABASE.md`) but haven't been tested under real
   concurrency.
-- Reprocessing a syllabus nulls `course.subject_id` on courses
-  generated from it, so they can't be regenerated even though the
-  syllabus still exists — open question in `DECISIONS.md`.
+- Reprocessing a syllabus re-links its courses by subject code
+  (2026-10-25). A course whose code no longer matches exactly one
+  subject stays unlinked and can't be regenerated (`409`).
 - The focus text gets the same "delimit and frame as a request"
   treatment `SECURITY.md` recommends for syllabus text, but like the
   syllabus text it can't make prompt injection impossible — the

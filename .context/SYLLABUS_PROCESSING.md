@@ -29,15 +29,44 @@ not a generic error or a silent crash.
    in a network-restricted build environment — confirmed working
    against a real generated PDF).
 2. **Structure detection** (`src/lib/syllabus-extraction.ts`) — a
-   **regex-based heuristic parser**, not an AI call. It looks for:
-   - Year headings: `"Year 2"`, `"2nd Year"`, etc.
+   **regex-based heuristic parser**, not an AI call. It recognises two
+   document shapes:
+
+   **Curriculum / prospectus** (many subjects):
+   - Year headings: `"Year 2"`, `"2nd Year"`, `"Second Year"`
    - Semester headings: `"1st Semester"` / `"First Semester"`, `"2nd
      Semester"` / `"Second Semester"`, `"Summer"`
-   - Subject lines: an optional course-code prefix (`CS201`, `IT-201`,
-     `CS 201A`) followed by a name; falls back to treating the whole
-     line as the subject name if no code pattern matches
+   - Subject lines: **must start with a subject code** (`CS201`,
+     `IT-201`, `CS 201A`, `MATH 101 -`) followed by a 3–120 character
+     name. Lines without a code are never subjects. A code seen twice
+     (e.g. again as a prerequisite) is kept once
    - The first line of the document, if it doesn't look like a
      year/semester heading, becomes the suggested syllabus title
+
+   **Single-course syllabus / course outline** (one subject + prose):
+   used when the document has fewer than 3 coded subject lines *and* a
+   labelled course header — `Course Number|Code|No. : CSIT121`,
+   `Descriptive Title|Course Title|Subject Title : …`,
+   `[Number of] Units[/Credits] : 3.0`. Produces exactly one subject
+   (with units), titles the syllabus `"CSIT121 — Fundamentals of
+   Programming"`, and takes year/semester from the first explicit
+   mention anywhere in the text (defaulting to Year 1 / 1st Semester
+   with a warning saying which were missing).
+
+   **Fixed 2026-10-25:** subject lines used to have an *optional* code
+   and fall back to "any line with three letters in it". A real
+   one-course outline (CIT-U CSIT121, 494 lines of vision/mission/
+   outcomes/weekly plan) produced **482 "subjects"**, every one of them
+   a sentence. The same PDF's text now yields exactly one subject —
+   `CSIT121 Fundamentals of Programming`, 3.0 units — covered by
+   `src/lib/syllabus-extraction.test.ts` (10 tests) and checked against
+   that PDF's real extracted text.
+
+   Trade-off: a curriculum that lists subjects **without** codes now
+   yields zero subjects (with a warning saying CourseForge looks for
+   coded lines) instead of a list polluted with every heading and
+   sentence. Adding a handful of subjects by hand is much less work
+   than deleting hundreds of wrong ones.
 
    **What this genuinely cannot do:** syllabi that don't use
    recognizable "Year N" / "Nst/nd Semester" headings, multi-column
@@ -83,14 +112,22 @@ discards any manual edits or manually-added subjects — the UI
 calling it. Verified live: reprocessing after an edit + a manual add
 correctly reverted to the freshly re-detected 5 subjects.
 
-**Side effect on courses (found in Milestone 8):** because the
-subjects are deleted and recreated rather than updated, every course
-generated from this syllabus has its `subject_id` set to null (the FK
-is `set null`). The courses themselves are unaffected, but they can no
-longer be regenerated — the library and course page show "can't
-regenerate" and the regenerate API returns `409` — even though the
-syllabus still exists. The reprocess confirmation doesn't mention
-this. Open question in `DECISIONS.md`.
+**Courses are re-linked by subject code (2026-10-25).** Subjects are
+still deleted and recreated, which nulls `course.subject_id` (FK `set
+null`). Reprocess now runs in one transaction that first records each
+of this owner's courses' subject code (the linked subject's code,
+falling back to the course's own denormalized `subject_code`), then
+replaces the subjects, then points each course at the new subject whose
+code matches under `normalizeSubjectCode` (case, spaces and hyphens
+ignored, so `"CS 202"` matches `"CS202"`). A code that matches zero or
+several new subjects is left unlinked rather than guessed — that course
+still works but can't be regenerated (`409`) until the subject exists
+again. The `subject_code` fallback also repairs courses unlinked by a
+reprocess before this existed. Verified live (generated curriculum PDF,
+real upload + reprocess): the linked course moved to the new `CS201`
+id, a previously-unlinked course with `subject_code = 'CS 202'` was
+repaired to the new `CS202`, and the re-linked course was regenerable
+again.
 
 ## Syllabus library (`/syllabi`)
 

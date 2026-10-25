@@ -512,6 +512,39 @@ anyway, for anything that needs the immediate parent.
 
 ---
 
+**Decision:** Reprocessing a syllabus re-links its courses to the
+re-detected subjects by subject code (option (b) of the open question
+raised 2026-10-23), in the same transaction as the subject
+replacement. Codes are compared with `normalizeSubjectCode` (case,
+spaces, hyphens ignored); the course's own `subject_code` is the
+fallback key, which also repairs courses unlinked by earlier
+reprocesses. Ambiguous (several matches) or missing codes stay
+unlinked rather than guessed.
+
+**Reason:** Chosen by the project owner. Reprocess keeps its
+deliberate "discard manual edits and re-detect" behaviour (option (c)
+would have changed that), while courses no longer silently lose
+regeneration. Code is the one field both extractions and the course
+itself carry; matching by name would be too fuzzy to trust.
+
+**Date:** 2026-10-25
+
+---
+
+**Decision:** Syllabus extraction only accepts lines that start with a
+subject code as subjects, and recognises single-course syllabi
+(labelled "Course Number / Descriptive Title / Units" header) as one
+subject.
+
+**Reason:** The old fallback ("any line with three letters is a
+subject") turned a real one-course outline into 482 subjects. A
+missing subject is a one-click manual add on the review page; hundreds
+of wrong ones are unusable. See `SYLLABUS_PROCESSING.md`.
+
+**Date:** 2026-10-25
+
+---
+
 ## Open questions (not yet decided — flag before Milestone 2 starts)
 
 - **AI provider abstraction shape** (Milestone 6): what the common
@@ -520,23 +553,6 @@ anyway, for anything that needs the immediate parent.
 - **Deployment target:** nothing has been chosen. Affects the
   syllabus-file-storage decision below and how `DATABASE_URL` gets
   provisioned.
-- **Should reprocessing a syllabus keep its courses regenerable?**
-  (raised 2026-10-23, Milestone 8). Reprocess deletes and recreates
-  the syllabus's subjects (`reprocessSyllabus` in
-  `src/lib/syllabus-service.ts`), and `course.subject_id` is `set
-  null` on delete, so every course generated from that syllabus loses
-  its subject link. Those courses then show "can't regenerate" and
-  `POST /api/courses/[id]/regenerate` returns `409` — even though the
-  syllabus itself still exists. Options: (a) leave it — reprocess is
-  rare and the UI explains the state; (b) on reprocess, re-link each
-  course to the new subject with the same code in the same syllabus
-  (falls apart for subjects without a code, or whose code changed
-  between extractions); (c) make reprocess update subjects in place
-  rather than delete and recreate them (a bigger change to Milestone
-  2's flow, and it's the deliberate "discard manual edits" behaviour
-  being changed). Nothing is decided; today's behaviour is (a) by
-  default. The reprocess confirmation doesn't currently warn about
-  this either.
 - **Should private sharing require a verified email?** (raised
   2026-10-25, Milestone 9). Private access is granted to an email and
   signup doesn't verify ownership, so registering an invited address

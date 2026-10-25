@@ -1,9 +1,13 @@
-import { eq, and } from "drizzle-orm";
+import { eq, and, sql } from "drizzle-orm";
 import { db } from "@/db";
-import { syllabi, subjects, type Syllabus } from "@/db/schema";
+import { syllabi, subjects, courses, type Syllabus } from "@/db/schema";
 import { validateSyllabusFile, type FileValidationError } from "@/lib/file-validation";
 import { extractTextFromPdf, PdfExtractionError } from "@/lib/pdf";
-import { extractSyllabusStructure } from "@/lib/syllabus-extraction";
+import {
+  extractSyllabusStructure,
+  normalizeSubjectCode,
+  type ExtractedSubject,
+} from "@/lib/syllabus-extraction";
 import { saveFile, readStoredFile, deleteStoredFile, syllabusStorageKey } from "@/lib/storage";
 
 export type ProcessUploadResult =
@@ -60,17 +64,7 @@ export async function processSyllabusUpload(
       .returning();
 
     if (extraction.subjects.length > 0) {
-      await db.insert(subjects).values(
-        extraction.subjects.map((s) => ({
-          syllabusId: created.id,
-          name: s.name,
-          code: s.code,
-          academicYear: s.academicYear,
-          semester: s.semester,
-          sortOrder: s.sortOrder,
-          autoDetected: true,
-        }))
-      );
+      await db.insert(subjects).values(toSubjectRows(created.id, extraction.subjects));
     }
 
     return { ok: true, syllabus: updated, warnings: extraction.warnings };
@@ -106,35 +100,48 @@ export async function reprocessSyllabus(
     const text = await extractTextFromPdf(buffer);
     const extraction = extractSyllabusStructure(text);
 
-    // Reprocessing replaces auto-detected structure. Manual edits are
-    // lost — the UI must warn about this before calling reprocess.
-    await db.delete(subjects).where(eq(subjects.syllabusId, syllabusId));
+    const updated = await db.transaction(async (tx) => {
+      // Remember which subject code each course of this syllabus was
+      // generated from *before* the subjects are replaced — deleting
+      // them sets course.subject_id to null (FK "set null"). Falls back
+      // to the course's own denormalized subject_code, which also
+      // repairs courses unlinked by a reprocess before this existed.
+      const linkedCourses = await tx
+        .select({
+          id: courses.id,
+          subjectCode: sql<string | null>`coalesce(${subjects.code}, ${courses.subjectCode})`,
+        })
+        .from(courses)
+        .leftJoin(subjects, eq(courses.subjectId, subjects.id))
+        .where(and(eq(courses.syllabusId, syllabusId), eq(courses.ownerId, userId)));
 
-    if (extraction.subjects.length > 0) {
-      await db.insert(subjects).values(
-        extraction.subjects.map((s) => ({
-          syllabusId,
-          name: s.name,
-          code: s.code,
-          academicYear: s.academicYear,
-          semester: s.semester,
-          sortOrder: s.sortOrder,
-          autoDetected: true,
-        }))
-      );
-    }
+      // Reprocessing replaces auto-detected structure. Manual edits are
+      // lost — the UI must warn about this before calling reprocess.
+      await tx.delete(subjects).where(eq(subjects.syllabusId, syllabusId));
 
-    const [updated] = await db
-      .update(syllabi)
-      .set({
-        extractedText: text,
-        extractionWarnings: extraction.warnings,
-        status: "needs_review",
-        processingError: null,
-        updatedAt: new Date(),
-      })
-      .where(eq(syllabi.id, syllabusId))
-      .returning();
+      const inserted =
+        extraction.subjects.length > 0
+          ? await tx
+              .insert(subjects)
+              .values(toSubjectRows(syllabusId, extraction.subjects))
+              .returning({ id: subjects.id, code: subjects.code })
+          : [];
+
+      await relinkCoursesByCode(tx, linkedCourses, inserted);
+
+      const [row] = await tx
+        .update(syllabi)
+        .set({
+          extractedText: text,
+          extractionWarnings: extraction.warnings,
+          status: "needs_review",
+          processingError: null,
+          updatedAt: new Date(),
+        })
+        .where(eq(syllabi.id, syllabusId))
+        .returning();
+      return row;
+    });
 
     return { ok: true, syllabus: updated, warnings: extraction.warnings };
   } catch (err) {
@@ -149,6 +156,48 @@ export async function reprocessSyllabus(
       .where(eq(syllabi.id, syllabusId));
 
     return { ok: false, error: { code: "extraction_failed", message } };
+  }
+}
+
+function toSubjectRows(syllabusId: string, extracted: ExtractedSubject[]) {
+  return extracted.map((s) => ({
+    syllabusId,
+    name: s.name,
+    code: s.code,
+    academicYear: s.academicYear,
+    semester: s.semester,
+    units: s.units,
+    sortOrder: s.sortOrder,
+    autoDetected: true,
+  }));
+}
+
+type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
+
+/**
+ * Points each course back at the re-detected subject with the same
+ * code (compared via normalizeSubjectCode, so "CS 201" matches
+ * "CS-201"). A code that now matches zero or several subjects is left
+ * unlinked rather than guessed — the course stays usable, it just
+ * can't be regenerated until the subject exists again.
+ */
+async function relinkCoursesByCode(
+  tx: Tx,
+  linkedCourses: { id: string; subjectCode: string | null }[],
+  newSubjects: { id: string; code: string | null }[]
+) {
+  const subjectsByCode = new Map<string, string[]>();
+  for (const subject of newSubjects) {
+    if (!subject.code) continue;
+    const key = normalizeSubjectCode(subject.code);
+    subjectsByCode.set(key, [...(subjectsByCode.get(key) ?? []), subject.id]);
+  }
+
+  for (const course of linkedCourses) {
+    if (!course.subjectCode) continue;
+    const matches = subjectsByCode.get(normalizeSubjectCode(course.subjectCode));
+    if (matches?.length !== 1) continue;
+    await tx.update(courses).set({ subjectId: matches[0] }).where(eq(courses.id, course.id));
   }
 }
 

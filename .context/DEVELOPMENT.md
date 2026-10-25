@@ -61,8 +61,9 @@ base-URL setting for them either.
 `@/*` paths. Tests sit next to the module they test.
 
 Scope is **pure logic only** — nothing touches the database, so
-there's no test DB to provision. Current suite, **95 tests in 5 files,
-all passing** (42 in 3 files at the end of Milestone 8):
+there's no test DB to provision. Current suite, **105 tests in 6 files,
+all passing** (95 in 5 at the end of Milestone 9; 42 in 3 at the end of
+Milestone 8):
 
 | File | Covers |
 |---|---|
@@ -70,6 +71,7 @@ all passing** (42 in 3 files at the end of Milestone 8):
 | `src/lib/course-markdown-export.test.ts` | heading shifting (incl. code fences and unclosed fences), document structure, answer keys for all 4 question types, option labels, export filenames |
 | `src/lib/prompt-generator.test.ts` | omitted vs. `full` focus give identical output with no Focus section; topics/exam sections (placement, fencing, backtick neutralising); `courseFocusSchema` trims and rejects empty/oversized topics and unknown kinds |
 | `src/lib/safe-redirect.test.ts` (28, Milestone 9) | `safeCallbackUrl`: same-origin paths keep query + hash, the share page's encoded callback round-trips, dot segments normalise, 22 parametrised hostile inputs fall back (protocol-relative, backslash variants, absolute/`javascript:`/`data:` URLs, tab/newline/NUL/DEL smuggling, percent-encoded slashes/backslash/tab, malformed `%`, empty), non-strings, overlong input, custom fallback |
+| `src/lib/syllabus-extraction.test.ts` (10, 2026-10-25) | curriculum parsing (coded lines only, spelled-out "Second Year" headings, duplicate codes kept once), single-course syllabus → exactly one subject with units and a course-based title, missing-year/semester warning, "nothing recognisable" warning, `normalizeSubjectCode` |
 | `src/lib/sharing-utils.test.ts` (23, Milestone 9) | share tokens (32 base64url chars decoding to 24 bytes, 2,000 generated with no repeats, malformed shapes and non-strings rejected), email normalisation and parsing, owner display names never falling back to anything but "A CourseForge student", the copy-provenance label |
 
 Everything with a database or HTTP in it is still verified by live

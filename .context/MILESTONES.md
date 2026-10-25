@@ -528,13 +528,11 @@ accounts:
 **Explicitly out of scope / known limitations** (do not treat as
 bugs):
 
-- **Reprocessing a syllabus breaks regeneration for its courses.**
-  Reprocess deletes and recreates the syllabus's subjects, and
-  `course.subject_id` is `set null` on delete — so every course
-  generated from that syllabus shows "can't regenerate" and the
-  regenerate route returns `409`, even though the syllabus still
-  exists. Open product decision, recorded in `DECISIONS.md`'s open
-  questions
+- ~~Reprocessing a syllabus breaks regeneration for its courses.~~
+  **Resolved 2026-10-25:** reprocess now re-links courses to the new
+  subjects by subject code (see `SYLLABUS_PROCESSING.md` and
+  `DECISIONS.md`). Courses whose code matches nothing (or several
+  subjects) after reprocess still can't be regenerated
 - Library search/filter/sort is client-side over the full per-user
   list. Fine at a student's course count; revisit with server-side
   pagination if libraries get large
@@ -806,6 +804,9 @@ milestones explicitly left for it:
   and its fallback, and 360px layouts of `/share/[token]`, `/shared`,
   and the share dialog
 
-Settle the open reprocess-vs-regeneration question in `DECISIONS.md`
-before or alongside this if it's cheap. It's independent of UX work,
-but it affects every course generated from a reprocessed syllabus.
+Fixed between Milestones 9 and 10 (2026-10-25): syllabus extraction
+now requires subject codes and recognises single-course syllabi (a real
+one-course PDF had produced 482 bogus subjects), and reprocess re-links
+courses by subject code. Both verified live; 105 unit tests. Syllabi
+uploaded before the fix keep their old, wrong subjects until the user
+clicks Reprocess.

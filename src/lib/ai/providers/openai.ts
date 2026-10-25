@@ -32,11 +32,25 @@ async function callOpenAI(
   if (response.status === 404) {
     return { ok: false, error: `Model "${model}" wasn't found. Check the model id.` };
   }
-  if (response.status === 429) {
-    return { ok: false, error: "OpenAI rate-limited this request. Try again in a moment." };
-  }
-
   const body = await response.json().catch(() => null);
+
+  // OpenAI sends 429 both for real rate limits and for an account with
+  // no credits/billing ("insufficient_quota") — only the error code
+  // tells them apart, and "try again in a moment" never fixes the latter.
+  if (response.status === 429) {
+    if (body?.error?.code === "insufficient_quota") {
+      return {
+        ok: false,
+        error:
+          "Your OpenAI account has no available credits. Add a payment method or credits at platform.openai.com → Settings → Billing, then try again.",
+      };
+    }
+    // OpenAI's own message names the actual limit (requests vs. tokens
+    // per minute, which model, the tier) — far more useful than a guess.
+    // It never contains the API key.
+    const detail = typeof body?.error?.message === "string" ? ` OpenAI says: ${body.error.message}` : "";
+    return { ok: false, error: `OpenAI rate-limited this request.${detail}` };
+  }
 
   if (!response.ok) {
     const message = body?.error?.message ?? `OpenAI returned an error (${response.status}).`;

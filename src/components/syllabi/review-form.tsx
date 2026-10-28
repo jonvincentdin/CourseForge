@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import type { Subject } from "@/db/schema";
@@ -25,6 +25,19 @@ export function ReviewForm({
   const [subjects, setSubjects] = useState(initialSubjects);
   const [isFinalizing, setIsFinalizing] = useState(false);
   const [finalizeError, setFinalizeError] = useState<string | null>(null);
+  const [announcement, setAnnouncement] = useState<{ text: string; key: number } | null>(null);
+  const statusRef = useRef<HTMLParagraphElement>(null);
+
+  // A removed row takes its Remove button (and the dialog's focus-return
+  // target) with it — park focus on the status line that says what happened.
+  useEffect(() => {
+    if (announcement) statusRef.current?.focus();
+  }, [announcement]);
+
+  function handleDeleted(id: string, name: string) {
+    setSubjects((prev) => prev.filter((s) => s.id !== id));
+    setAnnouncement((prev) => ({ text: `Removed “${name}”.`, key: (prev?.key ?? 0) + 1 }));
+  }
 
   async function handleFinalize() {
     setFinalizeError(null);
@@ -49,7 +62,7 @@ export function ReviewForm({
       <Link href="/syllabi" className="text-sm text-steel-soft hover:text-ink">
         ← My Syllabi
       </Link>
-      <h1 className="mt-3 font-display text-2xl font-medium text-ink">
+      <h1 className="mt-3 font-display text-2xl font-medium text-ink [overflow-wrap:anywhere]">
         Review {syllabusTitle}
       </h1>
       <p className="mt-1 text-sm text-ink-soft">
@@ -75,7 +88,17 @@ export function ReviewForm({
         </div>
       )}
 
-      <div className="mt-6 rounded-lg border border-line bg-paper-raised p-4">
+      <p
+        ref={statusRef}
+        tabIndex={-1}
+        role="status"
+        aria-live="polite"
+        className="mt-4 min-h-5 text-sm text-forge-green focus:outline-none"
+      >
+        {announcement && <span key={announcement.key}>{announcement.text}</span>}
+      </p>
+
+      <div className="mt-2 rounded-lg border border-line bg-paper-raised p-4">
         {subjects.length === 0 ? (
           <p className="py-6 text-center text-sm text-steel-soft">
             No subjects yet. Add them below.
@@ -94,9 +117,7 @@ export function ReviewForm({
                 key={subject.id}
                 syllabusId={syllabusId}
                 subject={subject}
-                onDeleted={(id) =>
-                  setSubjects((prev) => prev.filter((s) => s.id !== id))
-                }
+                onDeleted={handleDeleted}
               />
             ))
         )}
@@ -109,7 +130,7 @@ export function ReviewForm({
         />
       </div>
 
-      <div className="mt-8 flex items-center gap-3 border-t border-line pt-6">
+      <div className="mt-8 flex flex-wrap items-center gap-3 border-t border-line pt-6">
         <Button onClick={handleFinalize} disabled={isFinalizing}>
           {isFinalizing ? "Saving…" : "Save and finish"}
         </Button>

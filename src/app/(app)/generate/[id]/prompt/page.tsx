@@ -30,18 +30,17 @@ export default async function GeneratePromptPage({
   const subjectIds = (query.subjects ?? "").split(",").filter(Boolean);
   if (subjectIds.length === 0) notFound();
 
-  const rows = await db
-    .select()
-    .from(subjects)
-    .where(inArray(subjects.id, subjectIds));
+  // The AI-config status doesn't depend on the subjects — fetch both at once.
+  const [rows, aiStatus] = await Promise.all([
+    db.select().from(subjects).where(inArray(subjects.id, subjectIds)),
+    getAiConfigStatus(session!.user.id),
+  ]);
 
   // Defense in depth: only subjects that actually belong to this
   // (already ownership-checked) syllabus are used — a tampered query
   // string can't pull in another syllabus's subject id.
   const validSubjects = rows.filter((s) => s.syllabusId === id);
   if (validSubjects.length === 0) notFound();
-
-  const aiStatus = await getAiConfigStatus(session!.user.id);
 
   return (
     <div className="mx-auto max-w-3xl">

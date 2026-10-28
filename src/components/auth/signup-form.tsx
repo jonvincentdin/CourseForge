@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, type FormEvent } from "react";
+import { useId, useState, type FormEvent } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { signIn } from "next-auth/react";
@@ -23,6 +23,11 @@ export function SignupForm() {
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const errorId = useId();
+  const passwordHintId = useId();
+  // Server errors can be about any field (taken email, short password), so each field points at it.
+  const describedBy = (hintId?: string) =>
+    [hintId, error ? errorId : null].filter(Boolean).join(" ") || undefined;
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -33,7 +38,13 @@ export function SignupForm() {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ name, email, password }),
-    });
+    }).catch(() => null);
+
+    if (!response) {
+      setError("Couldn't reach CourseForge — check your connection and try again.");
+      setIsSubmitting(false);
+      return;
+    }
 
     if (!response.ok) {
       const body = await response.json().catch(() => null);
@@ -63,7 +74,7 @@ export function SignupForm() {
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Create your account</CardTitle>
+        <CardTitle as="h1">Create your account</CardTitle>
         <CardDescription>
           {intro ?? "Upload a syllabus once, then generate courses whenever you need them."}
         </CardDescription>
@@ -80,6 +91,8 @@ export function SignupForm() {
               required
               value={name}
               onChange={(e) => setName(e.target.value)}
+              aria-invalid={error ? true : undefined}
+              aria-describedby={describedBy()}
             />
           </div>
           <div className="space-y-1.5">
@@ -92,6 +105,8 @@ export function SignupForm() {
               required
               value={email}
               onChange={(e) => setEmail(e.target.value)}
+              aria-invalid={error ? true : undefined}
+              aria-describedby={describedBy()}
             />
           </div>
           <div className="space-y-1.5">
@@ -105,12 +120,16 @@ export function SignupForm() {
               minLength={8}
               value={password}
               onChange={(e) => setPassword(e.target.value)}
+              aria-invalid={error ? true : undefined}
+              aria-describedby={describedBy(passwordHintId)}
             />
-            <p className="text-xs text-steel-soft">At least 8 characters.</p>
+            <p id={passwordHintId} className="text-xs text-steel-soft">
+              At least 8 characters.
+            </p>
           </div>
 
           {error && (
-            <p role="alert" className="text-sm text-danger">
+            <p id={errorId} role="alert" className="text-sm text-danger">
               {error}
             </p>
           )}
@@ -122,7 +141,7 @@ export function SignupForm() {
 
         <p className="mt-6 text-center text-sm text-steel-soft">
           Already have an account?{" "}
-          <Link href={loginHref} className="font-medium text-ink hover:text-ember">
+          <Link href={loginHref} className="font-medium text-ink hover:text-ember-ink">
             Sign in
           </Link>
         </p>

@@ -1,4 +1,9 @@
 import type { AIProvider, GenerateCompletionParams, TestConnectionResult } from "@/lib/ai/types";
+import {
+  GENERATION_MAX_OUTPUT_TOKENS,
+  classifyOpenAIFinish,
+  describeFetchFailure,
+} from "@/lib/ai/response-end";
 
 const API_URL = "https://api.openai.com/v1/chat/completions";
 
@@ -6,7 +11,9 @@ async function callOpenAI(
   apiKey: string,
   model: string,
   prompt: string,
-  maxTokens: number
+  maxTokens: number,
+  /** Course generation only — see response-end.ts for why testConnection skips it. */
+  checkFinishReason = false
 ): Promise<{ ok: true; text: string } | { ok: false; error: string }> {
   let response: Response;
   try {
@@ -22,8 +29,8 @@ async function callOpenAI(
         messages: [{ role: "user", content: prompt }],
       }),
     });
-  } catch {
-    return { ok: false, error: "Couldn't reach OpenAI's API. Check your network connection." };
+  } catch (err) {
+    return { ok: false, error: describeFetchFailure("OpenAI", err) };
   }
 
   if (response.status === 401) {
@@ -57,6 +64,14 @@ async function callOpenAI(
     return { ok: false, error: message };
   }
 
+  // Checked before the text: a truncated or refused response is never
+  // worth validating, and a refusal arrives with null content.
+  if (checkFinishReason) {
+    const choice = body?.choices?.[0];
+    const end = classifyOpenAIFinish(choice?.finish_reason, choice?.message?.refusal);
+    if (!end.ok) return end;
+  }
+
   const text = body?.choices?.[0]?.message?.content;
   if (typeof text !== "string") {
     return { ok: false, error: "OpenAI's response didn't contain any text content." };
@@ -77,7 +92,7 @@ export const openaiProvider: AIProvider = {
   },
 
   async generateCompletion({ apiKey, model, prompt }: GenerateCompletionParams): Promise<string> {
-    const result = await callOpenAI(apiKey, model, prompt, 8000);
+    const result = await callOpenAI(apiKey, model, prompt, GENERATION_MAX_OUTPUT_TOKENS, true);
     if (!result.ok) throw new Error(result.error);
     return result.text;
   },

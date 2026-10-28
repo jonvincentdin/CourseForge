@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, type FormEvent } from "react";
+import { useId, useState, type FormEvent } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { signIn } from "next-auth/react";
@@ -22,6 +22,11 @@ export function LoginForm() {
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const errorId = useId();
+  // The error is about the pair, so both fields point at it.
+  const errorProps = error
+    ? { "aria-invalid": true as const, "aria-describedby": errorId }
+    : {};
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -48,7 +53,7 @@ export function LoginForm() {
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Sign in</CardTitle>
+        <CardTitle as="h1">Sign in</CardTitle>
         <CardDescription>
           {intro ?? "Welcome back. Sign in to reach your syllabi and courses."}
         </CardDescription>
@@ -65,6 +70,7 @@ export function LoginForm() {
               required
               value={email}
               onChange={(e) => setEmail(e.target.value)}
+              {...errorProps}
             />
           </div>
           <div className="space-y-1.5">
@@ -77,11 +83,12 @@ export function LoginForm() {
               required
               value={password}
               onChange={(e) => setPassword(e.target.value)}
+              {...errorProps}
             />
           </div>
 
           {error && (
-            <p role="alert" className="text-sm text-danger">
+            <p id={errorId} role="alert" className="text-sm text-danger">
               {error}
             </p>
           )}
@@ -95,7 +102,7 @@ export function LoginForm() {
           Don&apos;t have an account?{" "}
           <Link
             href={authCrossLink("/signup", callbackUrl)}
-            className="font-medium text-ink hover:text-ember"
+            className="font-medium text-ink hover:text-ember-ink"
           >
             Create one
           </Link>

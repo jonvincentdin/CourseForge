@@ -103,7 +103,7 @@ function SharedCourseCard({ course }: { course: SharedWithMeCourse }) {
         id={titleId}
         className="font-display text-lg font-medium leading-snug text-ink [overflow-wrap:anywhere]"
       >
-        <Link href={href} className="rounded-sm hover:text-ember">
+        <Link href={href} className="rounded-sm hover:text-ember-ink">
           {course.title}
         </Link>
       </h2>

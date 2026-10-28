@@ -1,5 +1,5 @@
 import { randomUUID } from "crypto";
-import { and, asc, desc, eq, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, sql } from "drizzle-orm";
 import { db } from "@/db";
 import {
   courses,
@@ -126,21 +126,25 @@ export async function importCourseFromJson(
     // Ownership check: if a subject/syllabus id was supplied, it must
     // actually belong to this user. Never trust a client-supplied id on
     // its own — same pattern as Milestone 2/3.
-    if (input.syllabusId) {
-      const owned = await getOwnedSyllabus(input.syllabusId, input.ownerId);
-      if (!owned) {
-        return { ok: false, errors: ["That syllabus doesn't belong to you."] };
-      }
+    //
+    // The subject must belong to that (verified) syllabus — a subject
+    // id is only meaningful relative to its syllabus, and checking the
+    // syllabus alone would let any subject id through. Both lookups
+    // run in parallel (Milestone 10); the syllabus result is still
+    // checked first, so the error a caller sees is unchanged.
+    const [ownedSyllabus, subjectInSyllabus] = await Promise.all([
+      input.syllabusId ? getOwnedSyllabus(input.syllabusId, input.ownerId) : null,
+      input.subjectId && input.syllabusId
+        ? getSubjectInSyllabus(input.subjectId, input.syllabusId)
+        : null,
+    ]);
+
+    if (input.syllabusId && !ownedSyllabus) {
+      return { ok: false, errors: ["That syllabus doesn't belong to you."] };
     }
 
-    // The subject must belong to that (now verified) syllabus — a
-    // subject id is only meaningful relative to its syllabus, and
-    // checking the syllabus alone would let any subject id through.
     if (input.subjectId) {
-      const subject = input.syllabusId
-        ? await getSubjectInSyllabus(input.subjectId, input.syllabusId)
-        : null;
-      if (!subject) {
+      if (!subjectInSyllabus) {
         return { ok: false, errors: ["That subject doesn't belong to that syllabus."] };
       }
     }
@@ -176,6 +180,19 @@ async function getSubjectInSyllabus(
     .where(and(eq(subjects.id, subjectId), eq(subjects.syllabusId, syllabusId)))
     .limit(1);
   return subject ?? null;
+}
+
+/**
+ * Postgres caps a statement at 65,535 bind parameters. The importer
+ * has no upper bound on modules/questions, so multi-row inserts are
+ * split into batches comfortably under that (≤ 8 columns × 1,000 rows).
+ */
+const INSERT_BATCH_ROWS = 1000;
+
+function chunk<T>(items: T[], size: number): T[][] {
+  const batches: T[][] = [];
+  for (let i = 0; i < items.length; i += size) batches.push(items.slice(i, i + size));
+  return batches;
 }
 
 async function persistImportedCourse(
@@ -233,35 +250,50 @@ async function persistImportedCourse(
       })
       .returning();
 
-    for (const [index, mod] of data.course.modules.entries()) {
-      const [insertedModule] = await tx
-        .insert(courseModules)
-        .values({
+    // Milestone 10: one multi-row insert per table instead of three
+    // inserts per module. Ids are generated here (same approach as
+    // addSharedCourseToMyCourses) so quizzes and questions can point at
+    // their parents without relying on RETURNING order.
+    const moduleRows = data.course.modules.map((mod, index) => ({
+      mod,
+      moduleId: randomUUID(),
+      quizId: randomUUID(),
+      index,
+    }));
+
+    for (const batch of chunk(moduleRows, INSERT_BATCH_ROWS)) {
+      await tx.insert(courseModules).values(
+        batch.map(({ mod, moduleId, index }) => ({
+          id: moduleId,
           courseId: course.id,
           title: mod.title,
           description: mod.description ?? null,
           learningObjectives: mod.learning_objectives ?? [],
           contentMarkdown: mod.content_markdown,
           sortOrder: index,
-        })
-        .returning();
-
-      const [insertedQuiz] = await tx
-        .insert(quizzes)
-        .values({ moduleId: insertedModule.id, title: mod.quiz.title })
-        .returning();
-
-      await tx.insert(quizQuestions).values(
-        mod.quiz.questions.map((q: QuestionImport, qIndex: number) => ({
-          quizId: insertedQuiz.id,
-          type: q.type,
-          prompt: q.prompt,
-          options: "options" in q ? q.options : null,
-          correctAnswer: q.correctAnswer,
-          explanation: q.explanation ?? null,
-          sortOrder: qIndex,
         }))
       );
+    }
+
+    for (const batch of chunk(moduleRows, INSERT_BATCH_ROWS)) {
+      await tx.insert(quizzes).values(
+        batch.map(({ mod, moduleId, quizId }) => ({ id: quizId, moduleId, title: mod.quiz.title }))
+      );
+    }
+
+    const questionRows = moduleRows.flatMap(({ mod, quizId }) =>
+      mod.quiz.questions.map((q: QuestionImport, qIndex: number) => ({
+        quizId,
+        type: q.type,
+        prompt: q.prompt,
+        options: "options" in q ? q.options : null,
+        correctAnswer: q.correctAnswer,
+        explanation: q.explanation ?? null,
+        sortOrder: qIndex,
+      }))
+    );
+    for (const batch of chunk(questionRows, INSERT_BATCH_ROWS)) {
+      await tx.insert(quizQuestions).values(batch);
     }
 
     return course;
@@ -273,44 +305,72 @@ export interface FullCourse {
   modules: (CourseModule & { quiz: Quiz & { questions: QuizQuestion[] } })[];
 }
 
+/**
+ * Three queries regardless of module count, run in parallel (one
+ * round trip of latency): the course, its modules, and every quiz with
+ * its questions. Milestone 10 replaced a per-module loop (2 queries per
+ * module) with this.
+ *
+ * The ownership condition is part of every one of the three
+ * statements (the module and quiz queries join back to `course`), so
+ * running them concurrently never reads another user's modules even
+ * transiently — a non-owner simply gets three empty results.
+ *
+ * Ordering is unchanged: modules by sortOrder, each quiz's questions by
+ * sortOrder (rows arrive question-sorted and are grouped in arrival
+ * order, so the sort survives grouping).
+ */
 export async function getOwnedCourse(
   id: string,
   userId: string
 ): Promise<FullCourse | null> {
   if (!isUuid(id)) return null;
 
-  const [course] = await db
-    .select()
-    .from(courses)
-    .where(and(eq(courses.id, id), eq(courses.ownerId, userId)))
-    .limit(1);
+  const owned = () => and(eq(courses.id, id), eq(courses.ownerId, userId));
 
+  const [courseRows, moduleRows, quizRows] = await Promise.all([
+    db.select().from(courses).where(owned()).limit(1),
+    db
+      .select({ module: courseModules })
+      .from(courseModules)
+      .innerJoin(courses, eq(courses.id, courseModules.courseId))
+      .where(owned())
+      .orderBy(asc(courseModules.sortOrder)),
+    db
+      .select({ quiz: quizzes, question: quizQuestions })
+      .from(quizzes)
+      .innerJoin(courseModules, eq(courseModules.id, quizzes.moduleId))
+      .innerJoin(courses, eq(courses.id, courseModules.courseId))
+      // Left join: a quiz with zero questions still comes back (with a
+      // null question) rather than disappearing.
+      .leftJoin(quizQuestions, eq(quizQuestions.quizId, quizzes.id))
+      .where(owned())
+      .orderBy(asc(quizQuestions.sortOrder)),
+  ]);
+
+  const [course] = courseRows;
   if (!course) return null;
 
-  const modules = await db
-    .select()
-    .from(courseModules)
-    .where(eq(courseModules.courseId, id))
-    .orderBy(asc(courseModules.sortOrder));
-
-  const fullModules: FullCourse["modules"] = [];
-  for (const mod of modules) {
-    const [quiz] = await db
-      .select()
-      .from(quizzes)
-      .where(eq(quizzes.moduleId, mod.id))
-      .limit(1);
-
-    const questions = quiz
-      ? await db
-          .select()
-          .from(quizQuestions)
-          .where(eq(quizQuestions.quizId, quiz.id))
-          .orderBy(asc(quizQuestions.sortOrder))
-      : [];
-
-    fullModules.push({ ...mod, quiz: { ...quiz, questions } });
+  const quizByModule = new Map<string, Quiz>();
+  const questionsByQuiz = new Map<string, QuizQuestion[]>();
+  for (const { quiz, question } of quizRows) {
+    if (!quizByModule.has(quiz.moduleId)) {
+      quizByModule.set(quiz.moduleId, quiz);
+      questionsByQuiz.set(quiz.id, []);
+    }
+    if (question) questionsByQuiz.get(quiz.id)!.push(question);
   }
+
+  const fullModules: FullCourse["modules"] = moduleRows.map(({ module: mod }) => {
+    const quiz = quizByModule.get(mod.id);
+    // Every module has a quiz in practice (import requires one). The
+    // spread of a missing quiz mirrors the pre-Milestone-10 loader,
+    // which produced `{ questions: [] }` in that case.
+    return {
+      ...mod,
+      quiz: { ...(quiz as Quiz), questions: quiz ? questionsByQuiz.get(quiz.id)! : [] },
+    };
+  });
 
   return { course, modules: fullModules };
 }
@@ -505,19 +565,23 @@ export interface CourseVersionSummary {
   createdAt: string;
 }
 
-/** All versions in the group of an owned course, highest version first. [] if the course isn't owned. */
+/**
+ * All versions in the group of an owned course, highest version first.
+ * [] if the course isn't owned. One statement (Milestone 10): the
+ * owned course's group id is resolved in a subquery rather than a
+ * separate round trip, so a non-owner's subquery is empty and so is
+ * the result.
+ */
 export async function getCourseVersions(
   courseId: string,
   userId: string
 ): Promise<CourseVersionSummary[]> {
   if (!isUuid(courseId)) return [];
 
-  const [owned] = await db
+  const ownedGroup = db
     .select({ versionGroupId: courses.versionGroupId })
     .from(courses)
-    .where(and(eq(courses.id, courseId), eq(courses.ownerId, userId)))
-    .limit(1);
-  if (!owned) return [];
+    .where(and(eq(courses.id, courseId), eq(courses.ownerId, userId)));
 
   // Still filtered by owner: a group id is not a capability, and
   // Milestone 9's shared copies must never surface someone else's
@@ -531,7 +595,7 @@ export async function getCourseVersions(
       createdAt: courses.createdAt,
     })
     .from(courses)
-    .where(and(eq(courses.versionGroupId, owned.versionGroupId), eq(courses.ownerId, userId)))
+    .where(and(inArray(courses.versionGroupId, ownedGroup), eq(courses.ownerId, userId)))
     .orderBy(desc(courses.version));
 
   return rows.map((row) => ({ ...row, createdAt: row.createdAt.toISOString() }));
@@ -580,18 +644,23 @@ export async function getRegenerationSource(
 ): Promise<RegenerationSource | null> {
   if (!isUuid(courseId)) return null;
 
-  const [course] = await db
-    .select()
+  // One statement (Milestone 10; previously three sequential lookups).
+  // The join conditions are exactly getOwnedSyllabus (syllabus owned
+  // by this user) and getSubjectInSyllabus (subject inside that
+  // syllabus) — the same conditions listCourseLibrary uses for
+  // canRegenerate. A left-joined row that doesn't match comes back as
+  // null, i.e. "unlinked".
+  const [row] = await db
+    .select({ course: courses, syllabus: syllabi, subject: subjects })
     .from(courses)
+    .leftJoin(syllabi, and(eq(syllabi.id, courses.syllabusId), eq(syllabi.userId, userId)))
+    .leftJoin(
+      subjects,
+      and(eq(subjects.id, courses.subjectId), eq(subjects.syllabusId, syllabi.id))
+    )
     .where(and(eq(courses.id, courseId), eq(courses.ownerId, userId)))
     .limit(1);
-  if (!course) return null;
+  if (!row) return null;
 
-  const syllabus = course.syllabusId ? await getOwnedSyllabus(course.syllabusId, userId) : null;
-  const subject =
-    syllabus && course.subjectId
-      ? await getSubjectInSyllabus(course.subjectId, syllabus.id)
-      : null;
-
-  return { course, subject, syllabus };
+  return { course: row.course, subject: row.subject, syllabus: row.syllabus };
 }

@@ -2,6 +2,7 @@ import Link from "next/link";
 import { Navbar } from "@/components/marketing/navbar";
 import { HeroVisual } from "@/components/marketing/hero-visual";
 import { buttonVariants } from "@/components/ui/button";
+import { MAIN_CONTENT_ID, SkipLink } from "@/components/ui/skip-link";
 
 const steps = [
   {
@@ -29,9 +30,10 @@ const steps = [
 export default function LandingPage() {
   return (
     <div className="flex min-h-full flex-col">
+      <SkipLink />
       <Navbar />
 
-      <main className="flex-1">
+      <main id={MAIN_CONTENT_ID} tabIndex={-1} className="flex-1 focus:outline-none">
         <section className="mx-auto max-w-6xl px-6 pb-16 pt-16 sm:pb-24 sm:pt-24">
           <div className="grid gap-12 lg:grid-cols-2 lg:items-center lg:gap-16">
             <div>
@@ -69,7 +71,7 @@ export default function LandingPage() {
             <div className="mt-10 grid gap-x-8 gap-y-10 sm:grid-cols-2">
               {steps.map((step, index) => (
                 <div key={step.title} className="flex gap-4">
-                  <span className="font-display text-2xl font-medium text-line-strong">
+                  <span aria-hidden="true" className="font-display text-2xl font-medium text-steel-soft">
                     {String(index + 1).padStart(2, "0")}
                   </span>
                   <div>

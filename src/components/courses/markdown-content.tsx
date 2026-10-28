@@ -15,14 +15,15 @@ export function MarkdownContent({ content }: { content: string }) {
       <ReactMarkdown
         remarkPlugins={[remarkGfm]}
         components={{
+          // Lesson headings sit one level below the page's own <h1> (the course title), so "# X" renders as <h2>.
           h1: (props) => (
-            <h1 className="mt-6 font-display text-xl font-medium text-ink first:mt-0" {...props} />
+            <h2 className="mt-6 font-display text-xl font-medium text-ink first:mt-0" {...props} />
           ),
           h2: (props) => (
-            <h2 className="mt-5 font-display text-lg font-medium text-ink" {...props} />
+            <h3 className="mt-5 font-display text-lg font-medium text-ink" {...props} />
           ),
           h3: (props) => (
-            <h3 className="mt-4 text-base font-semibold text-ink" {...props} />
+            <h4 className="mt-4 text-base font-semibold text-ink" {...props} />
           ),
           p: (props) => <p className="mt-3 first:mt-0" {...props} />,
           ul: (props) => <ul className="mt-3 list-disc space-y-1 pl-5" {...props} />,

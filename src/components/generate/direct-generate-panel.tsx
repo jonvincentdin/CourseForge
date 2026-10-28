@@ -84,7 +84,7 @@ export function DirectGeneratePanel({
             <p className="text-sm font-medium text-forge-green">Course ready.</p>
             <Link
               href={`/courses/${courseId}`}
-              className="mt-1 inline-block text-sm font-medium text-ink hover:text-ember"
+              className="mt-1 inline-block text-sm font-medium text-ink hover:text-ember-ink"
             >
               Start learning →
             </Link>

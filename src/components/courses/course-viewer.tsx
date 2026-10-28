@@ -140,7 +140,7 @@ export function CourseViewer({
           <p className="mt-2 text-xs text-steel-soft">
             Progress isn&apos;t saved while you&apos;re signed out.{" "}
             {signInHref ? (
-              <Link href={signInHref} className="font-medium text-ink underline-offset-2 hover:text-ember hover:underline">
+              <Link href={signInHref} className="font-medium text-ink underline-offset-2 hover:text-ember-ink hover:underline">
                 Sign in to save your progress
               </Link>
             ) : (

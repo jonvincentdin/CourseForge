@@ -760,20 +760,64 @@ bugs):
 
 ---
 
-## Milestone 10 — Performance & UX — `[ ]` Not started
+## Milestone 10 — Performance & UX — `[✓]` Complete (2026-10-26)
 
-Caching, skeleton loaders, responsive polish, accessibility audit,
-animation polish, error/empty states for everything built by then.
-Replace the remaining `confirm()`/`alert()` browser dialogs (syllabus
-delete/reprocess and subject removal from Milestone 2, AI-config
-removal from Milestone 6, the copy-failure `alert()` in
-`subject-prompt-panel.tsx`) with proper modals — `ConfirmDialog` and
-the base `Dialog` (`src/components/ui/dialog.tsx`) are the primitives to
-reuse. Include the manual keyboard/screen-reader pass that Milestones 8
-and 9 didn't do: `ActionMenu`, `ConfirmDialog`, the share dialog, the
-Add to My Courses sign-in dialog, and the new nav strip. Do the
-in-browser checks Milestone 9 left open: the `?add=1` round trip,
-Copy link and its fallback, and the 360px layouts.
+- [x] Performance — the per-module query loop in `getOwnedCourse`
+      replaced by a fixed number of batched queries; independent page
+      queries run in parallel; migration `0006` adds 7 FK indexes
+      (`syllabus.user_id`, `subject.syllabus_id`, `course_module.course_id`,
+      `quiz_question.quiz_id`, `course.syllabus_id`, `course.subject_id`,
+      `module_progress.user_id`)
+- [x] Caching — per-request `cache()` dedupe only. No cross-request
+      caching of per-user data (every page is user-specific and must
+      re-check authorization)
+- [x] AI responses — cut-off (`max_tokens` / `length`) and refusal are
+      reported clearly instead of as "invalid JSON"
+      (`src/lib/ai/response-end.ts`, tested); generation cap 8000 → 16000
+      tokens
+- [x] Skeleton loaders — `Skeleton` primitive; one generic
+      `(app)/loading.tsx` plus `share/[token]/loading.tsx`
+- [x] Error states — `(app)/error.tsx`, `global-error.tsx`, root
+      `not-found.tsx` (`StatePanel`); never shows server error text, only
+      the digest as a reference. The share page handles its own load
+      errors through `logShareError` so the token never reaches logs
+- [x] Every browser `confirm()`/`alert()` replaced (syllabus
+      delete/reprocess, subject removal, AI-config removal, copy failure)
+- [x] Accessibility — skip link to `<main id="main-content">` on app,
+      share and auth layouts; one `<h1>` per page (lesson Markdown
+      headings render one level down: `#` → `<h2>`)
+- [x] Responsive — no horizontal scroll at 360px on any page; nav links
+      become a scrollable strip below `lg`
+
+**Verified in a real browser** (Chrome via Playwright, production build,
+real Postgres) — **88/88 checks**: every authenticated page at 360px and
+1280px with zero horizontal overflow, axe-core (WCAG 2.1 A/AA + best
+practice) with zero serious/critical violations, exactly one `<h1>`, skip
+link present; `ActionMenu` keyboard (Enter opens, focus moves in, arrows
+move, Escape closes and returns focus); `ConfirmDialog` (labelled, focus
+moves in, Tab trapped, Escape closes without acting); share dialog (link
+shown, Copy link writes the real clipboard, axe clean, focus returns);
+the full `?add=1` round trip (anonymous → sign-in dialog → real login
+form → back on the share page → auto-add → param removed → exactly one
+copy → reload shows "In My Courses"); remove-subject and delete-syllabus
+use in-page dialogs and no native browser dialog appeared anywhere.
+The Milestone 8 (34/34), Milestone 9 (63/63) and re-link (8/8) suites
+still pass; 123 unit tests.
+
+**Known behaviour change:** with `loading.tsx`, Next.js streams the
+response, so a page that calls `notFound()` (someone else's course, a
+deleted course) now returns HTTP **200** with the not-found page and
+`noindex`, instead of a 404 status. Verified no course data is in that
+response, and it's byte-for-byte the same page as a course that never
+existed, so it reveals nothing. API routes still return 404. To get the
+404 status back on a route, remove the loading screen from it.
+
+**Not verified / limitations:** no screen-reader (NVDA/VoiceOver) pass,
+only axe and keyboard; the generic skeleton causes a small layout shift
+on pages that don't look like a card grid; react-markdown still passes a
+harmless `node="[object Object]"` attribute onto lesson elements;
+`share/[token]` has no `error.tsx` of its own (its data errors are
+handled in the page; render errors fall back to `global-error.tsx`).
 
 ## Milestone 11 — Production Readiness — `[ ]` Not started
 
@@ -787,22 +831,10 @@ and a real-concurrency test of the copy and add-person locks.
 
 ## Recommended immediate next step
 
-Milestone 10 (Performance & UX) is next. Start with the items earlier
-milestones explicitly left for it:
-
-- Replace the remaining browser dialogs — syllabus delete/reprocess and
-  subject removal (Milestone 2), AI-config removal (Milestone 6), and
-  the copy-failure `alert()` in `subject-prompt-panel.tsx` — with
-  `ConfirmDialog` or inline messages. The base `Dialog` in
-  `src/components/ui/dialog.tsx` covers anything that isn't a plain
-  confirmation
-- The manual keyboard and screen-reader pass nobody has done yet:
-  `ActionMenu`, `ConfirmDialog`, the share dialog, the Add to My Courses
-  sign-in dialog, and the nav strip below `lg`
-- The in-browser checks Milestone 9 couldn't do from HTTP alone: the
-  `?add=1` auto-add after a real login/signup round trip, Copy link
-  and its fallback, and 360px layouts of `/share/[token]`, `/shared`,
-  and the share dialog
+Milestone 11 (Production Readiness) is next: email verification (private
+sharing depends on it), rate limiting on `/share` and `/api/share`, a
+real-concurrency test of the copy and add-person locks, moving syllabus
+PDF storage off local disk, and choosing a deployment target.
 
 Fixed between Milestones 9 and 10 (2026-10-25): syllabus extraction
 now requires subject codes and recognises single-course syllabi (a real

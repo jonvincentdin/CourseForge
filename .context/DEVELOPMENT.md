@@ -61,7 +61,7 @@ base-URL setting for them either.
 `@/*` paths. Tests sit next to the module they test.
 
 Scope is **pure logic only** — nothing touches the database, so
-there's no test DB to provision. Current suite, **105 tests in 6 files,
+there's no test DB to provision. Current suite, **123 tests in 7 files** (adds `src/lib/ai/response-end.test.ts` in Milestone 10; previously **105 tests in 6 files,
 all passing** (95 in 5 at the end of Milestone 9; 42 in 3 at the end of
 Milestone 8):
 

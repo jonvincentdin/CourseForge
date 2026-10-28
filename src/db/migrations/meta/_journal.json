@@ -43,6 +43,13 @@
       "when": 1792767259336,
       "tag": "0005_late_exodus",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1792918355431,
+      "tag": "0006_handy_black_widow",
+      "breakpoints": true
     }
   ]
 }

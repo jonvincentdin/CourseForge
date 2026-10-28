@@ -31,16 +31,21 @@ export default async function CourseDetailPage({
   const { id } = await params;
   const { share } = await searchParams;
   const session = await auth();
-  const full = await getOwnedCourse(id, session!.user.id);
-
-  if (!full) notFound();
-
-  const { course, modules } = full;
-  const [progressRows, versions, regenerationSource] = await Promise.all([
+  // All four loads in one parallel round trip. Each is scoped to this
+  // user on its own (ownership is inside every statement, and progress
+  // rows are only ever this user's), so starting them before the
+  // ownership result is known can't expose anything — a non-owner just
+  // gets empty results alongside the null course.
+  const [full, progressRows, versions, regenerationSource] = await Promise.all([
+    getOwnedCourse(id, session!.user.id),
     getProgressForCourse(id, session!.user.id),
     getCourseVersions(id, session!.user.id),
     getRegenerationSource(id, session!.user.id),
   ]);
+
+  if (!full) notFound();
+
+  const { course, modules } = full;
 
   // Regeneration needs the original subject + syllabus to still exist
   // (and still be this user's) — the same rule the regenerate route enforces.

@@ -4,6 +4,7 @@ import { useState } from "react";
 import type { Subject } from "@/db/schema";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
+import { ConfirmDialog } from "@/components/ui/dialog";
 
 const YEARS = [1, 2, 3, 4];
 const SEMESTERS: Subject["semester"][] = [
@@ -21,7 +22,8 @@ export function SubjectRow({
 }: {
   syllabusId: string;
   subject: Subject;
-  onDeleted: (id: string) => void;
+  /** Called after a successful delete with the subject's id and (current) name. */
+  onDeleted: (id: string, name: string) => void;
 }) {
   const [name, setName] = useState(subject.name);
   const [code, setCode] = useState(subject.code ?? "");
@@ -29,7 +31,10 @@ export function SubjectRow({
   const [academicYear, setAcademicYear] = useState(subject.academicYear);
   const [semester, setSemester] = useState(subject.semester);
   const [saveState, setSaveState] = useState<SaveState>("idle");
+  const [confirmOpen, setConfirmOpen] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+  const displayName = name.trim() || subject.name;
 
   async function save(patch: Record<string, unknown>) {
     setSaveState("saving");
@@ -45,18 +50,24 @@ export function SubjectRow({
   }
 
   async function handleDelete() {
-    if (!confirm(`Remove "${name}" from this syllabus?`)) return;
     setIsDeleting(true);
+    setDeleteError(null);
     const response = await fetch(
       `/api/syllabi/${syllabusId}/subjects/${subject.id}`,
       { method: "DELETE" }
-    );
-    if (response.ok) {
-      onDeleted(subject.id);
-    } else {
-      setIsDeleting(false);
-      alert("Couldn't remove this subject. Please try again.");
+    ).catch(() => null);
+    setIsDeleting(false);
+
+    if (response && (response.ok || response.status === 404)) {
+      setConfirmOpen(false);
+      onDeleted(subject.id, displayName);
+      return;
     }
+    setDeleteError(
+      response
+        ? "Couldn't remove this subject. Please try again."
+        : "Couldn't reach CourseForge — check your connection and try again."
+    );
   }
 
   return (
@@ -124,14 +135,32 @@ export function SubjectRow({
         </span>
       </div>
       <Button
+        type="button"
         variant="ghost"
         size="sm"
-        className="text-danger hover:bg-danger-soft hover:text-danger sm:justify-self-end"
-        onClick={handleDelete}
-        disabled={isDeleting}
+        className="justify-self-start text-danger hover:bg-danger-soft hover:text-danger sm:justify-self-end"
+        onClick={() => setConfirmOpen(true)}
+        aria-haspopup="dialog"
+        aria-label={`Remove ${displayName}`}
       >
-        {isDeleting ? "Removing…" : "Remove"}
+        Remove
       </Button>
+
+      <ConfirmDialog
+        open={confirmOpen}
+        onOpenChange={(next) => {
+          if (!next) setDeleteError(null);
+          setConfirmOpen(next);
+        }}
+        title={`Remove “${displayName}”?`}
+        description="It's taken off this syllabus. Courses already generated from it stay in My Courses, but they can't be regenerated without it."
+        confirmLabel="Remove subject"
+        pendingLabel="Removing…"
+        confirmVariant="danger"
+        pending={isDeleting}
+        onConfirm={handleDelete}
+        error={deleteError}
+      />
     </div>
   );
 }

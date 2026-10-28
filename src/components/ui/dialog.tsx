@@ -113,7 +113,7 @@ export function Dialog({
               onClick={requestClose}
               aria-label="Close"
               disabled={busy}
-              className="-mr-2 -mt-1 inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-md text-steel transition-colors hover:bg-paper hover:text-ink disabled:opacity-60"
+              className="-mr-2 -mt-1 inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-md text-steel transition-colors hover:bg-paper hover:text-ink disabled:opacity-60 sm:h-9 sm:w-9"
             >
               <svg
                 aria-hidden="true"

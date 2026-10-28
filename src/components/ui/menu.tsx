@@ -154,7 +154,7 @@ export function ActionMenu({
         className={cn(
           trigger
             ? undefined
-            : "inline-flex h-9 w-9 items-center justify-center rounded-md text-steel transition-colors hover:bg-paper hover:text-ink",
+            : "inline-flex h-10 w-10 items-center justify-center rounded-md text-steel transition-colors hover:bg-paper hover:text-ink sm:h-9 sm:w-9",
           open && !trigger && "bg-paper text-ink",
           triggerClassName
         )}
@@ -170,8 +170,8 @@ export function ActionMenu({
           aria-labelledby={triggerLabel ? undefined : triggerId}
           onKeyDown={handleMenuKeyDown}
           className={cn(
-            "absolute top-full z-30 mt-1 min-w-52 max-w-[calc(100vw-2rem)] rounded-lg border border-line bg-paper-raised p-1 shadow-lg",
-            align === "end" ? "right-0" : "left-0"
+            "animate-menu-in absolute top-full z-30 mt-1 min-w-52 max-w-[calc(100vw-2rem)] rounded-lg border border-line bg-paper-raised p-1 shadow-lg",
+            align === "end" ? "right-0" : "left-0 [transform-origin:top_left]"
           )}
         >
           {items.map((item, index) => {

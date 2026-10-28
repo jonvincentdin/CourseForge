@@ -253,6 +253,11 @@ Anonymous viewers never write here.
 
 ## Indexes
 
+Milestone 10 (migration `0006`) added btree indexes on the foreign keys
+the app filters and joins on: `syllabus.user_id`, `subject.syllabus_id`,
+`course_module.course_id`, `quiz_question.quiz_id`, `course.syllabus_id`,
+`course.subject_id`, `module_progress.user_id`.
+
 `user.email`, `quiz.module_id`, and `ai_provider_config.user_id` each
 have a unique constraint (and therefore an index). `module_progress`
 has a unique constraint on `(module_id, user_id)`. Milestone 8 added

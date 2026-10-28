@@ -25,12 +25,17 @@ export function CardHeader({
   );
 }
 
+/**
+ * Defaults to h2: every card title in the app sits directly under the
+ * page's h1. Auth forms pass `as="h1"` (the card *is* the page there).
+ */
 export function CardTitle({
   className,
+  as: Heading = "h2",
   ...props
-}: React.HTMLAttributes<HTMLHeadingElement>) {
+}: React.HTMLAttributes<HTMLHeadingElement> & { as?: "h1" | "h2" | "h3" }) {
   return (
-    <h3
+    <Heading
       className={cn("font-display text-lg font-medium text-ink", className)}
       {...props}
     />

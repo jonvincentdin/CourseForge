@@ -5,7 +5,7 @@ type BadgeTone = "neutral" | "ember" | "green" | "danger";
 
 const toneStyles: Record<BadgeTone, string> = {
   neutral: "bg-paper text-steel border-line-strong",
-  ember: "bg-ember-soft text-ember border-transparent",
+  ember: "bg-ember-soft text-ember-ink border-transparent",
   green: "bg-forge-green-soft text-forge-green border-transparent",
   danger: "bg-danger-soft text-danger border-transparent",
 };

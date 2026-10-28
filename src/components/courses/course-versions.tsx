@@ -45,7 +45,7 @@ export function CourseVersions({
           const body = (
             <>
               <span
-                className={`w-9 shrink-0 font-mono text-xs ${isCurrent ? "text-ember" : "text-steel"}`}
+                className={`w-9 shrink-0 font-mono text-xs ${isCurrent ? "text-ember-ink" : "text-steel"}`}
               >
                 v{v.version}
               </span>
@@ -65,7 +65,7 @@ export function CourseVersions({
               {isCurrent ? (
                 <div aria-current="page" className="flex items-center gap-3 bg-paper px-4 py-2.5 text-sm">
                   {body}
-                  <span className="shrink-0 text-xs font-medium text-ember">Viewing</span>
+                  <span className="shrink-0 text-xs font-medium text-ember-ink">Viewing</span>
                 </div>
               ) : (
                 <Link

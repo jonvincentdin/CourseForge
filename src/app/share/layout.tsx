@@ -3,6 +3,7 @@ import Link from "next/link";
 import { auth } from "@/lib/auth";
 import { buttonVariants } from "@/components/ui/button";
 import { ShareAuthLinks } from "@/components/share/share-auth-links";
+import { MAIN_CONTENT_ID, SkipLink } from "@/components/ui/skip-link";
 
 // Share URLs are bearer links: keep them out of search results and
 // out of the Referer header (next.config.ts sets the same as HTTP headers).
@@ -24,6 +25,7 @@ export default async function ShareLayout({ children }: { children: React.ReactN
 
   return (
     <div className="flex min-h-full flex-1 flex-col bg-paper">
+      <SkipLink />
       <header className="border-b border-line bg-paper-raised">
         <div className="mx-auto flex max-w-6xl items-center justify-between gap-3 px-4 py-3 sm:px-6 sm:py-4">
           <Link
@@ -54,7 +56,13 @@ export default async function ShareLayout({ children }: { children: React.ReactN
         </div>
       </header>
 
-      <main className="mx-auto w-full max-w-6xl flex-1 px-4 py-8 sm:px-6 sm:py-10">{children}</main>
+      <main
+        id={MAIN_CONTENT_ID}
+        tabIndex={-1}
+        className="mx-auto w-full min-w-0 max-w-6xl flex-1 px-4 py-8 focus:outline-none sm:px-6 sm:py-10"
+      >
+        {children}
+      </main>
 
       <footer className="border-t border-line">
         <p className="mx-auto max-w-6xl px-4 py-5 text-xs text-steel-soft sm:px-6">

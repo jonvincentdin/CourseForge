@@ -19,7 +19,14 @@ export default async function RegenerateCoursePage({
 }) {
   const { id } = await params;
   const session = await auth();
-  const source = await getRegenerationSource(id, session!.user.id);
+  // One parallel round trip. versions is owner-scoped ([] for a
+  // non-owner) and aiStatus is the viewer's own config, so loading them
+  // before the ownership result is known exposes nothing.
+  const [source, versions, aiStatus] = await Promise.all([
+    getRegenerationSource(id, session!.user.id),
+    getCourseVersions(id, session!.user.id),
+    getAiConfigStatus(session!.user.id),
+  ]);
 
   if (!source) notFound();
 
@@ -77,11 +84,6 @@ export default async function RegenerateCoursePage({
       </div>
     );
   }
-
-  const [versions, aiStatus] = await Promise.all([
-    getCourseVersions(course.id, session!.user.id),
-    getAiConfigStatus(session!.user.id),
-  ]);
 
   // The new version number is max-in-group + 1, not this version + 1 —
   // regenerating from an older version still lands at the top.

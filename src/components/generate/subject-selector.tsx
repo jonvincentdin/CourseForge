@@ -133,7 +133,7 @@ export function SubjectSelector({
             onClick={() => changeSemester(sem)}
             className={`rounded-full border px-3 py-1 text-sm transition-colors ${
               sem === semester
-                ? "border-ember bg-ember-soft text-ember"
+                ? "border-ember bg-ember-soft text-ember-ink"
                 : "border-line-strong text-ink-soft hover:border-ink"
             }`}
           >

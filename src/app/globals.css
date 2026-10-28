@@ -13,11 +13,19 @@
   --ink: #14171c;
   --ink-soft: #4b525e;
   --steel: #48566b;
-  --steel-soft: #6b7688;
+  /* Darkened from #6b7688 in Milestone 10: that measured 4.25:1 on paper,
+     below WCAG AA's 4.5:1 for body text. #636e80 is 4.77:1 on paper and
+     5.16:1 on white — the same cool grey, one step deeper. */
+  --steel-soft: #636e80;
   --line: #dde1e7;
   --line-strong: #c3c9d3;
   --ember: #d1490f;
   --ember-soft: #f1d9ce;
+  /* Ember for *text* (badges, small links, "Viewing"). Ember itself is
+     4.16:1 on paper and 3.33:1 on ember-soft — fine for focus rings and
+     the transform arrow (3:1 non-text), too light for words. ember-ink
+     is 5.89:1 on paper and 4.72:1 on ember-soft. */
+  --ember-ink: #a93a0b;
   --forge-green: #2f6b4f;
   --forge-green-soft: #d9ebe1;
   --danger: #b3311c;
@@ -39,6 +47,7 @@
   --color-line-strong: var(--line-strong);
   --color-ember: var(--ember);
   --color-ember-soft: var(--ember-soft);
+  --color-ember-ink: var(--ember-ink);
   --color-forge-green: var(--forge-green);
   --color-forge-green-soft: var(--forge-green-soft);
   --color-danger: var(--danger);
@@ -86,4 +95,36 @@ body {
     transition-duration: 0.001ms !important;
     scroll-behavior: auto !important;
   }
+}
+
+/*
+  Motion (Milestone 10). Deliberately small: dialogs and menus fade/scale
+  in over ≤150ms so their arrival reads as an event, nothing else moves on
+  its own. The reduced-motion rule above shortens every one of these to
+  ~0ms, so nothing here needs its own media query.
+*/
+@keyframes cf-pop-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px) scale(0.98);
+  }
+}
+
+@keyframes cf-fade-in {
+  from {
+    opacity: 0;
+  }
+}
+
+dialog[open] {
+  animation: cf-pop-in 150ms ease-out;
+}
+
+dialog[open]::backdrop {
+  animation: cf-fade-in 150ms ease-out;
+}
+
+.animate-menu-in {
+  animation: cf-pop-in 120ms ease-out;
+  transform-origin: top right;
 }

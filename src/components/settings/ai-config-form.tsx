@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
+import { ConfirmDialog } from "@/components/ui/dialog";
 
 interface ProviderOption {
   id: string;
@@ -41,6 +42,8 @@ export function AiConfigForm({
   const [isSaving, setIsSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [isRemoving, setIsRemoving] = useState(false);
+  const [confirmRemoveOpen, setConfirmRemoveOpen] = useState(false);
+  const [removeError, setRemoveError] = useState<string | null>(null);
 
   const selectedProvider = providers.find((p) => p.id === providerId);
 
@@ -95,18 +98,21 @@ export function AiConfigForm({
   }
 
   async function handleRemove() {
-    if (!confirm("Remove your AI configuration? Direct generation will be unavailable until you add a new one.")) {
-      return;
-    }
     setIsRemoving(true);
-    const response = await fetch("/api/ai-config", { method: "DELETE" });
+    setRemoveError(null);
+    const response = await fetch("/api/ai-config", { method: "DELETE" }).catch(() => null);
     setIsRemoving(false);
 
-    if (!response.ok) {
-      alert("Couldn't remove the configuration. Please try again.");
+    if (!response?.ok) {
+      setRemoveError(
+        response
+          ? "Couldn't remove the configuration. Please try again."
+          : "Couldn't reach CourseForge — check your connection and try again."
+      );
       return;
     }
 
+    setConfirmRemoveOpen(false);
     setStatus({ configured: false });
     setIsEditing(true);
     setApiKey("");
@@ -135,12 +141,33 @@ export function AiConfigForm({
             variant="ghost"
             size="sm"
             className="text-danger hover:bg-danger-soft hover:text-danger"
-            onClick={handleRemove}
-            disabled={isRemoving}
+            onClick={() => setConfirmRemoveOpen(true)}
+            aria-haspopup="dialog"
           >
-            {isRemoving ? "Removing…" : "Remove"}
+            Remove
           </Button>
         </div>
+
+        <ConfirmDialog
+          open={confirmRemoveOpen}
+          onOpenChange={(next) => {
+            if (!next) setRemoveError(null);
+            setConfirmRemoveOpen(next);
+          }}
+          title="Remove your AI configuration?"
+          description={
+            <p>
+              Your saved API key is deleted. Direct generation is unavailable until you add a new
+              one — the external AI prompt flow keeps working.
+            </p>
+          }
+          confirmLabel="Remove configuration"
+          pendingLabel="Removing…"
+          confirmVariant="danger"
+          pending={isRemoving}
+          onConfirm={handleRemove}
+          error={removeError}
+        />
       </div>
     );
   }

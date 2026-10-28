@@ -1,4 +1,4 @@
-import { and, asc, eq, inArray } from "drizzle-orm";
+import { and, asc, eq } from "drizzle-orm";
 import { db } from "@/db";
 import {
   courseModules,
@@ -7,36 +7,35 @@ import {
   quizQuestions,
   quizzes,
   type ModuleProgress,
+  type QuizQuestion,
 } from "@/db/schema";
-import { getOwnedCourse } from "@/lib/course-service";
 import { gradeQuiz, type GradedQuestion } from "@/lib/quiz-grading";
 import { resolveSharedCourseAccess } from "@/lib/sharing-service";
 
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * This user's progress rows for every module of a course, keyed by
+ * module id. One join (Milestone 10; previously "list module ids, then
+ * look up progress"). Rows are scoped to `userId` only — callers
+ * resolve access to the course themselves. A malformed id is "no
+ * progress" rather than a Postgres error, because the course page now
+ * runs this in parallel with (not after) its uuid-checked ownership
+ * lookup.
+ */
 export async function getProgressForCourse(
   courseId: string,
   userId: string
 ): Promise<Record<string, ModuleProgress>> {
-  const modules = await db
-    .select({ id: courseModules.id })
-    .from(courseModules)
-    .where(eq(courseModules.courseId, courseId));
-
-  if (modules.length === 0) return {};
+  if (!UUID_PATTERN.test(courseId)) return {};
 
   const rows = await db
-    .select()
+    .select({ progress: moduleProgress })
     .from(moduleProgress)
-    .where(
-      and(
-        inArray(
-          moduleProgress.moduleId,
-          modules.map((m) => m.id)
-        ),
-        eq(moduleProgress.userId, userId)
-      )
-    );
+    .innerJoin(courseModules, eq(courseModules.id, moduleProgress.moduleId))
+    .where(and(eq(courseModules.courseId, courseId), eq(moduleProgress.userId, userId)));
 
-  return Object.fromEntries(rows.map((row) => [row.moduleId, row]));
+  return Object.fromEntries(rows.map(({ progress }) => [progress.moduleId, progress]));
 }
 
 export interface CourseProgressSummary {
@@ -54,20 +53,22 @@ export interface CourseProgressSummary {
 export async function getCourseProgressSummaries(
   userId: string
 ): Promise<Record<string, CourseProgressSummary>> {
-  const modules = await db
-    .select({ id: courseModules.id, courseId: courseModules.courseId })
-    .from(courseModules)
-    .innerJoin(courses, eq(courseModules.courseId, courses.id))
-    .where(eq(courses.ownerId, userId));
-
-  const progressRows = await db
-    .select({
-      moduleId: moduleProgress.moduleId,
-      lessonCompleted: moduleProgress.lessonCompleted,
-      quizScore: moduleProgress.quizScore,
-    })
-    .from(moduleProgress)
-    .where(eq(moduleProgress.userId, userId));
+  // Independent of each other — run in parallel (Milestone 10).
+  const [modules, progressRows] = await Promise.all([
+    db
+      .select({ id: courseModules.id, courseId: courseModules.courseId })
+      .from(courseModules)
+      .innerJoin(courses, eq(courseModules.courseId, courses.id))
+      .where(eq(courses.ownerId, userId)),
+    db
+      .select({
+        moduleId: moduleProgress.moduleId,
+        lessonCompleted: moduleProgress.lessonCompleted,
+        quizScore: moduleProgress.quizScore,
+      })
+      .from(moduleProgress)
+      .where(eq(moduleProgress.userId, userId)),
+  ]);
 
   const doneModuleIds = new Set(
     progressRows
@@ -89,19 +90,41 @@ export async function getCourseProgressSummaries(
   return summaries;
 }
 
-/** Verifies the module belongs to a course this user owns before touching progress. */
+/**
+ * Verifies the module belongs to a course this user owns before
+ * touching progress. One join (Milestone 10) — this used to load the
+ * entire course through getOwnedCourse just to test ownership.
+ */
 async function assertOwnedModule(moduleId: string, userId: string) {
-  const [mod] = await db
-    .select()
+  const [row] = await db
+    .select({ module: courseModules })
     .from(courseModules)
-    .where(eq(courseModules.id, moduleId))
+    .innerJoin(courses, eq(courses.id, courseModules.courseId))
+    .where(and(eq(courseModules.id, moduleId), eq(courses.ownerId, userId)))
     .limit(1);
-  if (!mod) return null;
+  return row?.module ?? null;
+}
 
-  const full = await getOwnedCourse(mod.courseId, userId);
-  if (!full) return null;
+/**
+ * A module's quiz and its questions (sortOrder) in one query; null if
+ * the module has no quiz. The left join keeps a quiz with zero
+ * questions (→ `questions: []`) distinct from no quiz at all.
+ */
+async function loadModuleQuiz(
+  moduleId: string
+): Promise<{ quizId: string; questions: QuizQuestion[] } | null> {
+  const rows = await db
+    .select({ quizId: quizzes.id, question: quizQuestions })
+    .from(quizzes)
+    .leftJoin(quizQuestions, eq(quizQuestions.quizId, quizzes.id))
+    .where(eq(quizzes.moduleId, moduleId))
+    .orderBy(asc(quizQuestions.sortOrder));
+  if (rows.length === 0) return null;
 
-  return mod;
+  return {
+    quizId: rows[0].quizId,
+    questions: rows.flatMap((row) => (row.question ? [row.question] : [])),
+  };
 }
 
 export async function markLessonComplete(
@@ -134,17 +157,9 @@ export async function submitQuizAttempt(
   const mod = await assertOwnedModule(moduleId, userId);
   if (!mod) return { ok: false, error: "Module not found." };
 
-  const [quiz] = await db
-    .select()
-    .from(quizzes)
-    .where(eq(quizzes.moduleId, moduleId))
-    .limit(1);
+  const quiz = await loadModuleQuiz(moduleId);
   if (!quiz) return { ok: false, error: "This module has no quiz." };
-
-  const questions = await db
-    .select()
-    .from(quizQuestions)
-    .where(eq(quizQuestions.quizId, quiz.id));
+  const { questions } = quiz;
 
   const { results, score, total } = gradeQuiz(questions, answers);
 
@@ -175,8 +190,6 @@ export async function submitQuizAttempt(
 // ---------------------------------------------------------------------------
 // Milestone 9 — progress for shared-course viewers
 // ---------------------------------------------------------------------------
-
-const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /**
  * Re-runs the share gate on every call, then confirms the module
@@ -225,18 +238,9 @@ export async function submitSharedQuizAttempt(
   const target = await resolveSharedModule(token, moduleId, viewerUserId);
   if (!target) return { ok: false, error: "Module not found." };
 
-  const [quiz] = await db
-    .select()
-    .from(quizzes)
-    .where(eq(quizzes.moduleId, target.moduleId))
-    .limit(1);
+  const quiz = await loadModuleQuiz(target.moduleId);
   if (!quiz) return { ok: false, error: "Module not found." };
-
-  const questions = await db
-    .select()
-    .from(quizQuestions)
-    .where(eq(quizQuestions.quizId, quiz.id))
-    .orderBy(asc(quizQuestions.sortOrder));
+  const { questions } = quiz;
 
   const { results, score, total } = gradeQuiz(questions, answers);
 

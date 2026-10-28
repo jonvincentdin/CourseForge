@@ -290,26 +290,29 @@ export async function resolveSharedCourseAccess(
 ): Promise<SharedCourseAccess> {
   if (!isShareTokenFormat(token)) return { status: "invalid" };
 
-  const [row] = await db
-    .select({ course: courses, ownerName: users.name })
-    .from(courses)
-    .innerJoin(users, eq(users.id, courses.ownerId))
-    .where(eq(courses.shareToken, token))
-    .limit(1);
+  // The token lookup and the viewer lookup don't depend on each other,
+  // so they share one round trip (Milestone 10). The viewer row is
+  // discarded unread when the token is unknown.
+  const [[row], viewerRows] = await Promise.all([
+    db
+      .select({ course: courses, ownerName: users.name })
+      .from(courses)
+      .innerJoin(users, eq(users.id, courses.ownerId))
+      .where(eq(courses.shareToken, token))
+      .limit(1),
+    viewerUserId && isUuid(viewerUserId)
+      ? db
+          .select({ id: users.id, email: users.email })
+          .from(users)
+          .where(eq(users.id, viewerUserId))
+          .limit(1)
+      : Promise.resolve([]),
+  ]);
   if (!row) return { status: "invalid" };
 
   const { course } = row;
   const displayName = ownerDisplayName(row.ownerName);
-
-  let viewer: { id: string; email: string } | null = null;
-  if (viewerUserId && isUuid(viewerUserId)) {
-    const [found] = await db
-      .select({ id: users.id, email: users.email })
-      .from(users)
-      .where(eq(users.id, viewerUserId))
-      .limit(1);
-    viewer = found ?? null;
-  }
+  const viewer: { id: string; email: string } | null = viewerRows[0] ?? null;
 
   const allowed = (isOwner: boolean): SharedCourseAccess => ({
     status: "allowed",

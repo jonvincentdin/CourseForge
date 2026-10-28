@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { desc, eq } from "drizzle-orm";
+import { desc, eq, sql } from "drizzle-orm";
 import { auth } from "@/lib/auth";
 import { db } from "@/db";
 import { syllabi, subjects } from "@/db/schema";
@@ -17,30 +17,34 @@ export default async function SyllabiPage() {
   const session = await auth();
   const userId = session!.user.id;
 
-  const rows = await db
-    .select({
-      id: syllabi.id,
-      title: syllabi.title,
-      status: syllabi.status,
-      createdAt: syllabi.createdAt,
-      processingError: syllabi.processingError,
-    })
-    .from(syllabi)
-    .where(eq(syllabi.userId, userId))
-    .orderBy(desc(syllabi.createdAt));
+  // Independent queries, run in parallel. Subject counts are
+  // aggregated in SQL (one row per syllabus) rather than by fetching
+  // every subject row and counting in JS.
+  const [rows, subjectCounts] = await Promise.all([
+    db
+      .select({
+        id: syllabi.id,
+        title: syllabi.title,
+        status: syllabi.status,
+        createdAt: syllabi.createdAt,
+        processingError: syllabi.processingError,
+      })
+      .from(syllabi)
+      .where(eq(syllabi.userId, userId))
+      .orderBy(desc(syllabi.createdAt)),
+    db
+      .select({
+        syllabusId: subjects.syllabusId,
+        count: sql<number>`count(*)`.mapWith(Number),
+      })
+      .from(subjects)
+      .innerJoin(syllabi, eq(subjects.syllabusId, syllabi.id))
+      .where(eq(syllabi.userId, userId))
+      .groupBy(subjects.syllabusId),
+  ]);
 
-  const subjectCounts = await db
-    .select({ syllabusId: subjects.syllabusId })
-    .from(subjects)
-    .innerJoin(syllabi, eq(subjects.syllabusId, syllabi.id))
-    .where(eq(syllabi.userId, userId));
-
-  const countBySyllabus = subjectCounts.reduce<Record<string, number>>(
-    (acc, row) => {
-      acc[row.syllabusId] = (acc[row.syllabusId] ?? 0) + 1;
-      return acc;
-    },
-    {}
+  const countBySyllabus: Record<string, number> = Object.fromEntries(
+    subjectCounts.map((row) => [row.syllabusId, row.count])
   );
 
   return (
@@ -118,7 +122,7 @@ export default async function SyllabiPage() {
                     View
                   </Link>
                 )}
-                <DeleteSyllabusButton syllabusId={row.id} />
+                <DeleteSyllabusButton syllabusId={row.id} syllabusTitle={row.title} />
               </CardContent>
             </Card>
           ))}

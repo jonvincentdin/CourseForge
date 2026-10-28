@@ -5,7 +5,7 @@ import { AppNavLinks } from "@/components/app/app-nav-links";
 export function AppNav({ userName }: { userName: string | null }) {
   return (
     <header className="border-b border-line bg-paper-raised">
-      <div className="mx-auto flex max-w-6xl items-center justify-between gap-4 px-6 py-3 sm:py-4">
+      <div className="mx-auto flex max-w-6xl items-center justify-between gap-4 px-4 py-3 sm:px-6 sm:py-4">
         <div className="flex items-center gap-8">
           <Link
             href="/dashboard"

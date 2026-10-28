@@ -57,7 +57,7 @@ silently re-litigated.
 
 ## Current project status
 
-**Milestones 1 through 9 are complete and verified live** — not just
+**Milestones 1 through 10 are complete and verified live** (Milestone 10 also in a real browser: 88/88 Playwright + axe checks) — not just
 build-clean, but exercised against a real running Postgres database,
 real HTTP requests throughout, a real call to Anthropic's live API for
 Milestone 6, and for Milestone 7, direct verification (by inspecting

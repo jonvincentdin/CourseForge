@@ -70,8 +70,12 @@ export default async function SyllabusDetailPage({
           {syllabus.processingError ?? "Processing failed."}
         </p>
         <div className="mt-4 flex gap-2">
-          <ReprocessButton syllabusId={syllabus.id} />
-          <DeleteSyllabusButton syllabusId={syllabus.id} />
+          <ReprocessButton syllabusId={syllabus.id} syllabusTitle={syllabus.title} />
+          <DeleteSyllabusButton
+            syllabusId={syllabus.id}
+            syllabusTitle={syllabus.title}
+            redirectTo="/syllabi"
+          />
         </div>
       </div>
     );
@@ -113,15 +117,19 @@ export default async function SyllabusDetailPage({
         >
           Edit subjects
         </Link>
-        <ReprocessButton syllabusId={syllabus.id} />
-        <DeleteSyllabusButton syllabusId={syllabus.id} />
+        <ReprocessButton syllabusId={syllabus.id} syllabusTitle={syllabus.title} />
+        <DeleteSyllabusButton
+          syllabusId={syllabus.id}
+          syllabusTitle={syllabus.title}
+          redirectTo="/syllabi"
+        />
       </div>
 
       <div className="mt-8 space-y-8">
         {grouped.length === 0 ? (
           <p className="text-sm text-steel-soft">
             No subjects yet.{" "}
-            <Link href={`/syllabi/${syllabus.id}/review`} className="text-ink hover:text-ember">
+            <Link href={`/syllabi/${syllabus.id}/review`} className="text-ink hover:text-ember-ink">
               Add some
             </Link>
             .

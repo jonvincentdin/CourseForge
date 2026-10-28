@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, type FormEvent } from "react";
+import { useEffect, useId, useRef, useState, type FormEvent } from "react";
 import type { Subject } from "@/db/schema";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -19,10 +19,30 @@ export function AddSubjectForm({
   const [semester, setSemester] = useState<Subject["semester"]>("1st Semester");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const errorId = useId();
+  const openButtonRef = useRef<HTMLButtonElement>(null);
+  const firstFieldRef = useRef<HTMLInputElement>(null);
+  // Set when the form closes, so focus goes back to "Add a subject" rather than <body>.
+  const restoreFocus = useRef(false);
+
+  useEffect(() => {
+    if (isOpen) {
+      firstFieldRef.current?.focus();
+    } else if (restoreFocus.current) {
+      restoreFocus.current = false;
+      openButtonRef.current?.focus();
+    }
+  }, [isOpen]);
+
+  function close() {
+    restoreFocus.current = true;
+    setError(null);
+    setIsOpen(false);
+  }
 
   if (!isOpen) {
     return (
-      <Button variant="secondary" size="sm" onClick={() => setIsOpen(true)}>
+      <Button ref={openButtonRef} variant="secondary" size="sm" onClick={() => setIsOpen(true)}>
         Add a subject
       </Button>
     );
@@ -37,12 +57,17 @@ export function AddSubjectForm({
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ name, code: code || null, academicYear, semester }),
-    });
+    }).catch(() => null);
 
-    const body = await response.json().catch(() => null);
+    const body = await response?.json().catch(() => null);
 
-    if (!response.ok) {
-      setError(body?.error ?? "Couldn't add this subject.");
+    if (!response?.ok) {
+      setError(
+        body?.error ??
+          (response
+            ? "Couldn't add this subject."
+            : "Couldn't reach CourseForge — check your connection and try again.")
+      );
       setIsSubmitting(false);
       return;
     }
@@ -51,30 +76,37 @@ export function AddSubjectForm({
     setName("");
     setCode("");
     setIsSubmitting(false);
-    setIsOpen(false);
+    close();
   }
 
   return (
     <form
       onSubmit={handleSubmit}
+      aria-label="Add a subject"
       className="flex flex-wrap items-end gap-2 rounded-md border border-line bg-paper p-3"
     >
-      <div className="flex-1 min-w-[140px]">
+      <div className="min-w-[140px] flex-1">
         <Input
+          ref={firstFieldRef}
           placeholder="Code (optional)"
+          aria-label="Subject code (optional)"
           value={code}
           onChange={(e) => setCode(e.target.value)}
         />
       </div>
-      <div className="flex-[2] min-w-[200px]">
+      <div className="min-w-0 flex-[2] basis-48">
         <Input
           placeholder="Subject name"
+          aria-label="Subject name"
           required
           value={name}
           onChange={(e) => setName(e.target.value)}
+          aria-invalid={error ? true : undefined}
+          aria-describedby={error ? errorId : undefined}
         />
       </div>
       <select
+        aria-label="Academic year"
         value={academicYear}
         onChange={(e) => setAcademicYear(Number(e.target.value))}
         className="h-10 rounded-md border border-line-strong bg-paper-raised px-3 text-sm text-ink"
@@ -86,6 +118,7 @@ export function AddSubjectForm({
         ))}
       </select>
       <select
+        aria-label="Semester"
         value={semester}
         onChange={(e) => setSemester(e.target.value as Subject["semester"])}
         className="h-10 rounded-md border border-line-strong bg-paper-raised px-3 text-sm text-ink"
@@ -101,11 +134,15 @@ export function AddSubjectForm({
         type="button"
         variant="ghost"
         size="sm"
-        onClick={() => setIsOpen(false)}
+        onClick={close}
       >
         Cancel
       </Button>
-      {error && <p className="w-full text-sm text-danger">{error}</p>}
+      {error && (
+        <p id={errorId} role="alert" className="w-full text-sm text-danger">
+          {error}
+        </p>
+      )}
     </form>
   );
 }

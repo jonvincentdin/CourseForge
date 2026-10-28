@@ -64,7 +64,7 @@ export function ImportCourseForm({
       </p>
       <Link
         href={`/courses/${createdCourseId}`}
-        className="mt-1 inline-block text-sm font-medium text-ink hover:text-ember"
+        className="mt-1 inline-block text-sm font-medium text-ink hover:text-ember-ink"
       >
         {regenerateFromCourseId ? "Start learning →" : "Open the course →"}
       </Link>

@@ -24,6 +24,8 @@ import type { AdapterAccountType } from "@auth/core/adapters";
  * Milestone 8 scope: course versioning columns on `course`.
  * Milestone 9 scope: sharing columns on `course` (visibility, share
  * token, copy provenance) and the `course_permission` table.
+ * Milestone 10 scope: btree indexes on the foreign keys the app's
+ * queries filter/join on (no column changes).
  */
 
 export const users = pgTable("user", {
@@ -112,41 +114,57 @@ export const semesterEnum = pgEnum("semester", [
  * user has, newest first. This keeps the model simple and still satisfies
  * "never destroy older syllabus data."
  */
-export const syllabi = pgTable("syllabus", {
-  id: uuid("id").primaryKey().defaultRandom(),
-  userId: uuid("user_id")
-    .notNull()
-    .references(() => users.id, { onDelete: "cascade" }),
-  title: text("title").notNull(),
-  originalFilename: text("original_filename").notNull(),
-  storageKey: text("storage_key").notNull(),
-  fileSizeBytes: integer("file_size_bytes").notNull(),
-  status: syllabusStatus("status").notNull().default("processing"),
-  extractedText: text("extracted_text"),
-  extractionWarnings: text("extraction_warnings").array(),
-  processingError: text("processing_error"),
-  createdAt: timestamp("created_at").defaultNow().notNull(),
-  updatedAt: timestamp("updated_at").defaultNow().notNull(),
-});
+export const syllabi = pgTable(
+  "syllabus",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    title: text("title").notNull(),
+    originalFilename: text("original_filename").notNull(),
+    storageKey: text("storage_key").notNull(),
+    fileSizeBytes: integer("file_size_bytes").notNull(),
+    status: syllabusStatus("status").notNull().default("processing"),
+    extractedText: text("extracted_text"),
+    extractionWarnings: text("extraction_warnings").array(),
+    processingError: text("processing_error"),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+    updatedAt: timestamp("updated_at").defaultNow().notNull(),
+  },
+  (table) => [
+    // Milestone 10. Every syllabus list (dashboard, /syllabi, /generate)
+    // filters on user_id; also the cascade when a user is deleted.
+    index("syllabus_user_id_idx").on(table.userId),
+  ]
+);
 
-export const subjects = pgTable("subject", {
-  id: uuid("id").primaryKey().defaultRandom(),
-  syllabusId: uuid("syllabus_id")
-    .notNull()
-    .references(() => syllabi.id, { onDelete: "cascade" }),
-  name: text("name").notNull(),
-  code: text("code"),
-  description: text("description"),
-  academicYear: integer("academic_year").notNull(),
-  semester: semesterEnum("semester").notNull(),
-  units: text("units"),
-  sortOrder: integer("sort_order").notNull().default(0),
-  // Detected automatically vs. added/edited by hand — surfaced in the
-  // review UI so a user can see what CourseForge is less sure about.
-  autoDetected: boolean("auto_detected").notNull().default(true),
-  createdAt: timestamp("created_at").defaultNow().notNull(),
-  updatedAt: timestamp("updated_at").defaultNow().notNull(),
-});
+export const subjects = pgTable(
+  "subject",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    syllabusId: uuid("syllabus_id")
+      .notNull()
+      .references(() => syllabi.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    code: text("code"),
+    description: text("description"),
+    academicYear: integer("academic_year").notNull(),
+    semester: semesterEnum("semester").notNull(),
+    units: text("units"),
+    sortOrder: integer("sort_order").notNull().default(0),
+    // Detected automatically vs. added/edited by hand — surfaced in the
+    // review UI so a user can see what CourseForge is less sure about.
+    autoDetected: boolean("auto_detected").notNull().default(true),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+    updatedAt: timestamp("updated_at").defaultNow().notNull(),
+  },
+  (table) => [
+    // Milestone 10. Subject lists, the /syllabi subject counts,
+    // reprocess's delete-and-replace, and the cascade from syllabus.
+    index("subject_syllabus_id_idx").on(table.syllabusId),
+  ]
+);
 
 export type Syllabus = typeof syllabi.$inferSelect;
 export type NewSyllabus = typeof syllabi.$inferInsert;
@@ -246,22 +264,35 @@ export const courses = pgTable(
     // Duplicate-copy check (findExistingCopy) and the `set null` cascade
     // when an original is deleted.
     index("course_source_course_id_idx").on(table.sourceCourseId),
+    // Milestone 10. Reprocess looks up a syllabus's courses by
+    // syllabus_id; both columns are also scanned by their `set null`
+    // cascades (deleting a syllabus, or the subjects reprocess replaces).
+    index("course_syllabus_id_idx").on(table.syllabusId),
+    index("course_subject_id_idx").on(table.subjectId),
   ]
 );
 
-export const courseModules = pgTable("course_module", {
-  id: uuid("id").primaryKey().defaultRandom(),
-  courseId: uuid("course_id")
-    .notNull()
-    .references(() => courses.id, { onDelete: "cascade" }),
-  title: text("title").notNull(),
-  description: text("description"),
-  learningObjectives: jsonb("learning_objectives").$type<string[]>().notNull().default([]),
-  contentMarkdown: text("content_markdown").notNull(),
-  sortOrder: integer("sort_order").notNull().default(0),
-  createdAt: timestamp("created_at").defaultNow().notNull(),
-  updatedAt: timestamp("updated_at").defaultNow().notNull(),
-});
+export const courseModules = pgTable(
+  "course_module",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    courseId: uuid("course_id")
+      .notNull()
+      .references(() => courses.id, { onDelete: "cascade" }),
+    title: text("title").notNull(),
+    description: text("description"),
+    learningObjectives: jsonb("learning_objectives").$type<string[]>().notNull().default([]),
+    contentMarkdown: text("content_markdown").notNull(),
+    sortOrder: integer("sort_order").notNull().default(0),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+    updatedAt: timestamp("updated_at").defaultNow().notNull(),
+  },
+  (table) => [
+    // Milestone 10. Every course load, progress query and library
+    // aggregate joins modules to their course; also the cascade.
+    index("course_module_course_id_idx").on(table.courseId),
+  ]
+);
 
 /** Every module has exactly one quiz — enforced by the unique constraint on module_id. */
 export const quizzes = pgTable("quiz", {
@@ -284,18 +315,26 @@ export const quizzes = pgTable("quiz", {
  *   identification   -> string[] (any accepted answer, matched case-insensitively)
  * Enforced by src/lib/course-schema.ts at write time, not by the DB.
  */
-export const quizQuestions = pgTable("quiz_question", {
-  id: uuid("id").primaryKey().defaultRandom(),
-  quizId: uuid("quiz_id")
-    .notNull()
-    .references(() => quizzes.id, { onDelete: "cascade" }),
-  type: quizQuestionType("type").notNull(),
-  prompt: text("prompt").notNull(),
-  options: jsonb("options").$type<{ id: string; text: string }[] | null>(),
-  correctAnswer: jsonb("correct_answer").$type<string | string[] | boolean>().notNull(),
-  explanation: text("explanation"),
-  sortOrder: integer("sort_order").notNull().default(0),
-});
+export const quizQuestions = pgTable(
+  "quiz_question",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    quizId: uuid("quiz_id")
+      .notNull()
+      .references(() => quizzes.id, { onDelete: "cascade" }),
+    type: quizQuestionType("type").notNull(),
+    prompt: text("prompt").notNull(),
+    options: jsonb("options").$type<{ id: string; text: string }[] | null>(),
+    correctAnswer: jsonb("correct_answer").$type<string | string[] | boolean>().notNull(),
+    explanation: text("explanation"),
+    sortOrder: integer("sort_order").notNull().default(0),
+  },
+  (table) => [
+    // Milestone 10. Questions are always loaded by quiz (course load,
+    // grading, copy); also the cascade from quiz.
+    index("quiz_question_quiz_id_idx").on(table.quizId),
+  ]
+);
 
 // ---------------------------------------------------------------------------
 // Milestone 9 — Course Sharing
@@ -402,7 +441,13 @@ export const moduleProgress = pgTable(
     quizCompletedAt: timestamp("quiz_completed_at"),
     updatedAt: timestamp("updated_at").defaultNow().notNull(),
   },
-  (table) => [unique().on(table.moduleId, table.userId)]
+  (table) => [
+    unique().on(table.moduleId, table.userId),
+    // Milestone 10. The (module_id, user_id) unique index can't serve a
+    // user_id-only filter (dashboard progress summaries); also the
+    // cascade when a user is deleted.
+    index("module_progress_user_id_idx").on(table.userId),
+  ]
 );
 
 export type ModuleProgress = typeof moduleProgress.$inferSelect;

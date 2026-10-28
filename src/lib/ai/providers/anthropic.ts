@@ -1,4 +1,9 @@
 import type { AIProvider, GenerateCompletionParams, TestConnectionResult } from "@/lib/ai/types";
+import {
+  GENERATION_MAX_OUTPUT_TOKENS,
+  classifyAnthropicStop,
+  describeFetchFailure,
+} from "@/lib/ai/response-end";
 
 const API_URL = "https://api.anthropic.com/v1/messages";
 const ANTHROPIC_VERSION = "2023-06-01";
@@ -7,7 +12,9 @@ async function callAnthropic(
   apiKey: string,
   model: string,
   prompt: string,
-  maxTokens: number
+  maxTokens: number,
+  /** Course generation only — see response-end.ts for why testConnection skips it. */
+  checkStopReason = false
 ): Promise<{ ok: true; text: string } | { ok: false; error: string }> {
   let response: Response;
   try {
@@ -24,8 +31,8 @@ async function callAnthropic(
         messages: [{ role: "user", content: prompt }],
       }),
     });
-  } catch {
-    return { ok: false, error: "Couldn't reach Anthropic's API. Check your network connection." };
+  } catch (err) {
+    return { ok: false, error: describeFetchFailure("Anthropic", err) };
   }
 
   if (response.status === 401) {
@@ -43,6 +50,13 @@ async function callAnthropic(
   if (!response.ok) {
     const message = body?.error?.message ?? `Anthropic returned an error (${response.status}).`;
     return { ok: false, error: message };
+  }
+
+  // Checked before the text: a truncated or refused response is never
+  // worth validating, and a refusal may carry no text block at all.
+  if (checkStopReason) {
+    const end = classifyAnthropicStop(body?.stop_reason);
+    if (!end.ok) return end;
   }
 
   const text = body?.content?.find((block: { type: string }) => block.type === "text")?.text;
@@ -65,7 +79,7 @@ export const anthropicProvider: AIProvider = {
   },
 
   async generateCompletion({ apiKey, model, prompt }: GenerateCompletionParams): Promise<string> {
-    const result = await callAnthropic(apiKey, model, prompt, 8000);
+    const result = await callAnthropic(apiKey, model, prompt, GENERATION_MAX_OUTPUT_TOKENS, true);
     if (!result.ok) throw new Error(result.error);
     return result.text;
   },

@@ -1,9 +1,13 @@
 import { cache } from "react";
 import type { Metadata } from "next";
 import Link from "next/link";
+import { unstable_rethrow } from "next/navigation";
+import type { Session } from "next-auth";
+import type { ModuleProgress } from "@/db/schema";
 import { auth } from "@/lib/auth";
 import { findExistingCopy, getSharedCourse } from "@/lib/sharing-service";
 import { getProgressForCourse } from "@/lib/progress-service";
+import { logShareError } from "@/lib/sharing-utils";
 import { sanitizeQuestionForClient } from "@/lib/quiz-client-types";
 import { Badge } from "@/components/ui/badge";
 import { buttonVariants } from "@/components/ui/button";
@@ -20,15 +24,59 @@ const VIEWER_SECTION_ID = "learn";
 
 const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
 
+type SharedCourseResult = Awaited<ReturnType<typeof getSharedCourse>>;
+
 /**
- * One access decision per request, shared by generateMetadata and the
- * page (React cache dedupes within a render). Never cached across
- * requests — unsharing or removing someone must apply on the next load.
+ * What the page renders from. `status: "error"` is an unexpected
+ * failure (database down, a bug) — never an access decision; those are
+ * all inside `access`. It deliberately carries nothing: the error was
+ * already logged without the token, and the UI must stay generic.
  */
-const loadSharedCourse = cache(async (token: string) => {
-  const session = await auth();
-  const result = await getSharedCourse(token, session?.user?.id ?? null);
-  return { session, ...result };
+type SharedPageData =
+  | { status: "error" }
+  | ({
+      status: "ok";
+      session: Session | null;
+      /** This viewer's own progress; null when anonymous or not allowed. */
+      progressRows: Record<string, ModuleProgress> | null;
+      /** The viewer's existing Course Copy of this course, if any. */
+      existingCopyId: string | null;
+    } & SharedCourseResult);
+
+/**
+ * Every DB read for this page, once per request: generateMetadata and
+ * the page share it (React cache dedupes within a render). Never cached
+ * across requests — unsharing or removing someone must apply on the
+ * next load.
+ *
+ * Wrapped in try/catch because an uncaught error here would be logged
+ * by Next with its message, and Drizzle's query errors embed bound
+ * parameters — the share token. logShareError records only the error
+ * class and Postgres code. unstable_rethrow lets Next's own control
+ * flow (dynamic-rendering bailouts etc.) pass through untouched.
+ */
+const loadSharedPage = cache(async (token: string): Promise<SharedPageData> => {
+  try {
+    const session = await auth();
+    const result = await getSharedCourse(token, session?.user?.id ?? null);
+
+    let progressRows: Record<string, ModuleProgress> | null = null;
+    let existingCopyId: string | null = null;
+    if (result.access.status === "allowed" && result.full) {
+      const { course, isOwner, viewerUserId } = result.access;
+      [progressRows, existingCopyId] = await Promise.all([
+        // A signed-in viewer's progress is keyed by their own user id — never the owner's.
+        viewerUserId ? getProgressForCourse(course.id, viewerUserId) : Promise.resolve(null),
+        viewerUserId && !isOwner ? findExistingCopy(course.id, viewerUserId) : Promise.resolve(null),
+      ]);
+    }
+
+    return { status: "ok", session, ...result, progressRows, existingCopyId };
+  } catch (err) {
+    unstable_rethrow(err);
+    logShareError("load shared course", err);
+    return { status: "error" };
+  }
 });
 
 export async function generateMetadata({
@@ -37,12 +85,12 @@ export async function generateMetadata({
   params: Promise<{ token: string }>;
 }): Promise<Metadata> {
   const { token } = await params;
-  const { access } = await loadSharedCourse(token);
+  const data = await loadSharedPage(token);
   return {
     // Only an authorised viewer's tab shows the title; noindex keeps it out of search either way.
     title:
-      access.status === "allowed"
-        ? `${access.course.title} — Shared course — CourseForge`
+      data.status === "ok" && data.access.status === "allowed"
+        ? `${data.access.course.title} — Shared course — CourseForge`
         : "Shared course — CourseForge",
     robots: { index: false, follow: false },
     referrer: "no-referrer",
@@ -58,9 +106,33 @@ export default async function SharedCoursePage({
 }) {
   const { token } = await params;
   const { add } = await searchParams;
-  const { session, access, full } = await loadSharedCourse(token);
+  const data = await loadSharedPage(token);
   const sharePath = `/share/${token}`;
   const callback = `?callbackUrl=${encodeURIComponent(sharePath)}`;
+
+  if (data.status === "error") {
+    // Generic on purpose: no error detail, and nothing that hints at
+    // whether the link is valid. Retrying is a plain reload of this URL.
+    return (
+      <AccessState
+        icon={<BrokenLinkIcon />}
+        title="We couldn’t load this course"
+        body={<p>Something went wrong on our end. Please try again in a moment.</p>}
+        actions={
+          <>
+            <Link href={sharePath} className={buttonVariants()}>
+              Try again
+            </Link>
+            <Link href="/" className={buttonVariants({ variant: "secondary" })}>
+              Go to CourseForge
+            </Link>
+          </>
+        }
+      />
+    );
+  }
+
+  const { session, access, full, progressRows, existingCopyId } = data;
 
   if (access.status === "invalid" || (access.status === "allowed" && !full)) {
     return (
@@ -143,12 +215,6 @@ export default async function SharedCoursePage({
   const { course, isOwner, viewerUserId, ownerDisplayName } = access;
   const modules = full!.modules;
   const quizCount = modules.filter((mod) => mod.quiz.questions.length > 0).length;
-
-  const [progressRows, existingCopyId] = await Promise.all([
-    // A signed-in viewer's progress is keyed by their own user id — never the owner's.
-    viewerUserId ? getProgressForCourse(course.id, viewerUserId) : Promise.resolve(null),
-    viewerUserId && !isOwner ? findExistingCopy(course.id, viewerUserId) : Promise.resolve(null),
-  ]);
 
   // Only what the viewer renders crosses to the client — and never
   // correctAnswer/explanation, which arrive per question after grading.

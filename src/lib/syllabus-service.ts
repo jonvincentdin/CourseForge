@@ -1,4 +1,4 @@
-import { eq, and, sql } from "drizzle-orm";
+import { eq, and, inArray, sql } from "drizzle-orm";
 import { db } from "@/db";
 import { syllabi, subjects, courses, type Syllabus } from "@/db/schema";
 import { validateSyllabusFile, type FileValidationError } from "@/lib/file-validation";
@@ -193,12 +193,35 @@ async function relinkCoursesByCode(
     subjectsByCode.set(key, [...(subjectsByCode.get(key) ?? []), subject.id]);
   }
 
+  const relinks: { courseId: string; subjectId: string }[] = [];
   for (const course of linkedCourses) {
     if (!course.subjectCode) continue;
     const matches = subjectsByCode.get(normalizeSubjectCode(course.subjectCode));
     if (matches?.length !== 1) continue;
-    await tx.update(courses).set({ subjectId: matches[0] }).where(eq(courses.id, course.id));
+    relinks.push({ courseId: course.id, subjectId: matches[0] });
   }
+  if (relinks.length === 0) return;
+
+  // One UPDATE for every relinked course (Milestone 10; previously one
+  // per course): subject_id = CASE id WHEN … THEN … END, restricted to
+  // exactly the relinked ids so no other row is touched.
+  const subjectIdCase = sql.join(
+    [
+      sql`case ${courses.id}`,
+      ...relinks.map((r) => sql`when ${r.courseId}::uuid then ${r.subjectId}::uuid`),
+      sql`end`,
+    ],
+    sql` `
+  );
+  await tx
+    .update(courses)
+    .set({ subjectId: subjectIdCase })
+    .where(
+      inArray(
+        courses.id,
+        relinks.map((r) => r.courseId)
+      )
+    );
 }
 
 /** Ownership-checked lookup. Never trust a client-supplied syllabus id without this. */

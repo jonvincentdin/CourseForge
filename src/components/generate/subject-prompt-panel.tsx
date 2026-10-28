@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
 import type { Subject, Syllabus } from "@/db/schema";
 import { buildCoursePrompt, type CourseDepth } from "@/lib/prompt-generator";
 import { Button } from "@/components/ui/button";
@@ -21,7 +21,10 @@ export function SubjectPromptPanel({
   depth: CourseDepth;
   includeLearningObjectives: boolean;
 }) {
-  const [copied, setCopied] = useState(false);
+  const [copyState, setCopyState] = useState<"idle" | "copied" | "failed">("idle");
+  const promptRef = useRef<HTMLTextAreaElement>(null);
+  const promptId = useId();
+  const hintId = useId();
 
   const prompt = useMemo(
     () =>
@@ -34,13 +37,19 @@ export function SubjectPromptPanel({
     [subject, syllabus, depth, includeLearningObjectives]
   );
 
+  // Settings changed after a copy → the copied text is stale; drop the tick.
+  useEffect(() => setCopyState("idle"), [prompt]);
+
   async function handleCopy() {
     try {
       await navigator.clipboard.writeText(prompt);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
+      setCopyState("copied");
+      setTimeout(() => setCopyState((s) => (s === "copied" ? "idle" : s)), 2000);
     } catch {
-      alert("Couldn't copy automatically — select the text and copy it manually.");
+      // Same fallback as the regenerate form: select the text so a manual Ctrl/Cmd+C just works.
+      setCopyState("failed");
+      promptRef.current?.focus();
+      promptRef.current?.select();
     }
   }
 
@@ -49,22 +58,35 @@ export function SubjectPromptPanel({
   return (
     <Card>
       <CardHeader>
-        <CardTitle>{label}</CardTitle>
+        <CardTitle className="[overflow-wrap:anywhere]">{label}</CardTitle>
       </CardHeader>
       <CardContent>
-        <div className="flex items-center justify-between">
-          <p className="text-sm font-medium text-ink-soft">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <label htmlFor={promptId} className="text-sm font-medium text-ink-soft">
             1. Copy this prompt into any AI
-          </p>
+          </label>
           <Button size="sm" variant="secondary" onClick={handleCopy}>
-            {copied ? "Copied!" : "Copy prompt"}
+            {copyState === "copied" ? "Copied!" : "Copy prompt"}
           </Button>
         </div>
-        <pre className="mt-2 max-h-64 overflow-y-auto whitespace-pre-wrap rounded-md border border-line bg-paper p-3 font-mono text-xs text-ink-soft">
-          {prompt}
-        </pre>
+        <textarea
+          ref={promptRef}
+          id={promptId}
+          readOnly
+          value={prompt}
+          rows={10}
+          aria-describedby={hintId}
+          className="mt-2 w-full resize-y rounded-md border border-line bg-paper p-3 font-mono text-xs text-ink-soft focus-visible:border-ember focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ember"
+        />
+        <p id={hintId} aria-live="polite" className="mt-1 min-h-4 text-xs text-steel-soft">
+          {copyState === "failed"
+            ? "Couldn't copy automatically — the prompt is selected, so press Ctrl+C (⌘C on Mac) to copy it."
+            : copyState === "copied"
+              ? "Prompt copied to your clipboard."
+              : ""}
+        </p>
 
-        <p className="mt-6 text-sm font-medium text-ink-soft">
+        <p className="mt-5 text-sm font-medium text-ink-soft">
           2. Paste the JSON it returns back here
         </p>
         <div className="mt-2">

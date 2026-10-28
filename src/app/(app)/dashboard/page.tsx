@@ -17,25 +17,26 @@ export default async function DashboardPage() {
   const session = await auth();
   const firstName = session?.user?.name?.split(" ")[0];
 
-  const recentSyllabi = await db
-    .select({
-      id: syllabi.id,
-      title: syllabi.title,
-      status: syllabi.status,
-    })
-    .from(syllabi)
-    .where(eq(syllabi.userId, session!.user.id))
-    .orderBy(desc(syllabi.createdAt))
-    .limit(3);
-
-  const recentCourses = await db
-    .select({ id: courses.id, title: courses.title })
-    .from(courses)
-    .where(eq(courses.ownerId, session!.user.id))
-    .orderBy(desc(courses.createdAt))
-    .limit(3);
-
-  const progress = await getCourseProgressSummaries(session!.user.id);
+  // Independent queries — one round trip instead of three in sequence.
+  const [recentSyllabi, recentCourses, progress] = await Promise.all([
+    db
+      .select({
+        id: syllabi.id,
+        title: syllabi.title,
+        status: syllabi.status,
+      })
+      .from(syllabi)
+      .where(eq(syllabi.userId, session!.user.id))
+      .orderBy(desc(syllabi.createdAt))
+      .limit(3),
+    db
+      .select({ id: courses.id, title: courses.title })
+      .from(courses)
+      .where(eq(courses.ownerId, session!.user.id))
+      .orderBy(desc(courses.createdAt))
+      .limit(3),
+    getCourseProgressSummaries(session!.user.id),
+  ]);
 
   return (
     <div className="space-y-8">
@@ -82,7 +83,7 @@ export default async function DashboardPage() {
                 <li key={s.id} className="flex items-center justify-between py-2.5">
                   <Link
                     href={s.status === "needs_review" ? `/syllabi/${s.id}/review` : `/syllabi/${s.id}`}
-                    className="text-sm font-medium text-ink hover:text-ember"
+                    className="text-sm font-medium text-ink hover:text-ember-ink"
                   >
                     {s.title}
                   </Link>
@@ -135,7 +136,7 @@ export default async function DashboardPage() {
                     <div className="flex items-center justify-between text-sm">
                       <Link
                         href={`/courses/${c.id}`}
-                        className="font-medium text-ink hover:text-ember"
+                        className="font-medium text-ink hover:text-ember-ink"
                       >
                         {c.title}
                       </Link>
